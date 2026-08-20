@@ -104,7 +104,17 @@ def main():
 
     criterion = DiceCELoss()
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
-    scaler = torch.amp.GradScaler(device_type=device.type, enabled=(device.type == "cuda"))
+    if device.type == "cuda":
+        try:
+            scaler = torch.amp.GradScaler("cuda", enabled=True)
+        except Exception:
+            scaler = torch.cuda.amp.GradScaler(enabled=True)
+    else:
+        try:
+            scaler = torch.amp.GradScaler("cpu", enabled=False)
+        except Exception:
+            scaler = torch.cuda.amp.GradScaler(enabled=False)
+
 
 
     best_val_dice = 0.0
