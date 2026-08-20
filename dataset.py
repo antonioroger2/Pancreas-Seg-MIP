@@ -103,63 +103,60 @@ def _find_dicom_series_dir(root_dir):
 
 class Pancreas2DDataset(Dataset):
     """
-    2D Slice-wise Dataset for Pancreas Segmentation in CT volumes.
-    Extracts axial 2D slices from 3D volumes (NIfTI or DICOM).
+    Fast In-Memory 2D Slice-wise Dataset for Pancreas Segmentation.
+    Pre-caches normalized slices in memory to eliminate slow disk I/O bottlenecks.
     """
-    def __init__(self, image_paths, mask_paths, transform=None, min_hu=-125.0, max_hu=225.0):
+    def __init__(self, image_paths, mask_paths, transform=None, min_hu=-125.0, max_hu=225.0, preload=True):
         self.image_paths = sorted(image_paths)
         self.mask_paths = sorted(mask_paths)
         self.transform = transform
         self.min_hu = min_hu
         self.max_hu = max_hu
-        self.slices_index = []
+        self.cached_slices = []
 
-        # Index valid axial slices across 3D volumes
-        print(f"  Indexing {len(self.image_paths)} volumes for 2D slices...")
-        for idx, (img_p, mask_p) in enumerate(zip(self.image_paths, self.mask_paths)):
-            mask_data = load_volume(mask_p) if not os.path.isdir(mask_p) else nib.load(mask_p).get_fdata()
-            # Use nibabel for NIfTI masks (annotations are always NIfTI)
-            if mask_p.endswith((".nii", ".nii.gz")):
-                mask_data = nib.load(mask_p).get_fdata()
-            else:
-                mask_data = load_volume(mask_p)
+        print(f"  Pre-loading {len(self.image_paths)} volumes into memory for ultra-fast training...")
+        for img_p, mask_p in zip(self.image_paths, self.mask_paths):
+            try:
+                img_vol = load_volume(img_p)
+                if mask_p.endswith((".nii", ".nii.gz")):
+                    mask_vol = nib.load(mask_p).get_fdata()
+                else:
+                    mask_vol = load_volume(mask_p)
 
-            num_slices = mask_data.shape[2]
-            for s in range(num_slices):
-                has_pancreas = np.sum(mask_data[:, :, s]) > 0
-                # Keep all pancreas slices + 20% of background slices for context
-                if has_pancreas or np.random.rand() < 0.2:
-                    self.slices_index.append((idx, s))
+                # Pre-normalize volume
+                img_vol = clip_and_normalize_hu(img_vol, self.min_hu, self.max_hu)
+                mask_vol = (mask_vol > 0).astype(np.float32)
 
-        print(f"  Indexed {len(self.slices_index)} total 2D slices.")
+                num_slices = mask_vol.shape[2]
+                for s in range(num_slices):
+                    mask_slice = mask_vol[:, :, s]
+                    has_pancreas = np.sum(mask_slice) > 0
+
+                    # Keep all pancreas slices + 10% of background slices
+                    if has_pancreas or np.random.rand() < 0.10:
+                        img_slice = img_vol[:, :, s]
+                        self.cached_slices.append((
+                            torch.from_numpy(img_slice).unsqueeze(0),
+                            torch.from_numpy(mask_slice).unsqueeze(0)
+                        ))
+            except Exception as e:
+                print(f"  [Warning] Error loading {img_p}: {e}")
+
+        print(f"  Cached {len(self.cached_slices)} active slices in RAM. Ready for zero-wait training!")
 
     def __len__(self):
-        return len(self.slices_index)
+        return len(self.cached_slices)
 
     def __getitem__(self, index):
-        vol_idx, slice_idx = self.slices_index[index]
-
-        # Load volumes
-        img_vol = load_volume(self.image_paths[vol_idx])
-        mask_vol = load_volume(self.mask_paths[vol_idx])
-
-        img_slice = img_vol[:, :, slice_idx]
-        mask_slice = mask_vol[:, :, slice_idx]
-
-        # Apply HU clipping and normalization
-        img_slice = clip_and_normalize_hu(img_slice, self.min_hu, self.max_hu)
-        mask_slice = (mask_slice > 0).astype(np.float32)
-
-        # Convert to Tensor (Channel First: [1, H, W])
-        img_tensor = torch.from_numpy(img_slice).unsqueeze(0)
-        mask_tensor = torch.from_numpy(mask_slice).unsqueeze(0)
-
-        data_dict = {"image": img_tensor, "label": mask_tensor}
+        img_tensor, mask_tensor = self.cached_slices[index]
 
         if self.transform:
+            data_dict = {"image": img_tensor, "label": mask_tensor}
             data_dict = self.transform(data_dict)
+            return data_dict["image"], data_dict["label"]
 
-        return data_dict["image"], data_dict["label"]
+        return img_tensor, mask_tensor
+
 
 
 def get_monai_transforms(keys=["image", "label"], img_size=(256, 256)):
