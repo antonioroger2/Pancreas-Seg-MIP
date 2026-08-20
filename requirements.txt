@@ -1,0 +1,9 @@
+torch>=2.0.0
+torchvision>=0.15.0
+monai>=1.2.0
+nibabel>=5.0.0
+SimpleITK>=2.2.0
+numpy>=1.22.0
+matplotlib>=3.5.0
+tqdm>=4.64.0
+scikit-learn>=1.0.0

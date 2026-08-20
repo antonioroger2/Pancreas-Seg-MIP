@@ -1,0 +1,16 @@
+# Byte-compiled / Python caches
+__pycache__/
+*.py[cod]
+
+# macOS system files
+.DS_Store
+
+# Datasets and checkpoints (ignored to keep repo light)
+data/
+checkpoints/
+*.nii
+*.nii.gz
+*.pth
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
