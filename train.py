@@ -4,7 +4,6 @@ from datetime import datetime
 import csv
 import torch
 import torch.optim as optim
-from torch.cuda.amp import GradScaler, autocast
 from tqdm import tqdm
 
 from dataset import create_dataloaders
@@ -15,6 +14,7 @@ from utils import set_seed, calculate_dice_score, plot_prediction_overlay, plot_
 def train_one_epoch(model, dataloader, criterion, optimizer, scaler, device):
     model.train()
     running_loss = 0.0
+    use_cuda = (device.type == "cuda")
 
     pbar = tqdm(dataloader, desc="Training", leave=False)
     for images, labels in pbar:
@@ -23,7 +23,7 @@ def train_one_epoch(model, dataloader, criterion, optimizer, scaler, device):
 
         optimizer.zero_grad()
 
-        with autocast(enabled=torch.cuda.is_available()):
+        with torch.amp.autocast(device_type=device.type, enabled=use_cuda):
             outputs = model(images)
             loss = criterion(outputs, labels)
 
@@ -42,13 +42,14 @@ def validate(model, dataloader, criterion, device):
     model.eval()
     running_loss = 0.0
     dice_scores = []
+    use_cuda = (device.type == "cuda")
 
     with torch.no_grad():
         for images, labels in tqdm(dataloader, desc="Validation", leave=False):
             images = images.to(device)
             labels = labels.to(device)
 
-            with autocast(enabled=torch.cuda.is_available()):
+            with torch.amp.autocast(device_type=device.type, enabled=use_cuda):
                 outputs = model(images)
                 loss = criterion(outputs, labels)
 
@@ -58,6 +59,7 @@ def validate(model, dataloader, criterion, device):
             for p, l in zip(preds, labels):
                 score = calculate_dice_score(p, l)
                 dice_scores.append(score)
+
 
     val_loss = running_loss / len(dataloader.dataset)
     val_dice = sum(dice_scores) / len(dice_scores) if dice_scores else 0.0
@@ -78,7 +80,13 @@ def main():
 
     set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    if num_gpus > 1:
+        print(f"Using {num_gpus} GPUs (Multi-GPU CUDA DataParallel mode enabled)!")
+    elif num_gpus == 1:
+        print(f"Using Single GPU: {torch.cuda.get_device_name(0)}")
+    else:
+        print(f"Using CPU mode.")
 
     os.makedirs(args.output_dir, exist_ok=True)
     if args.save_drive_path:
@@ -89,10 +97,15 @@ def main():
     train_loader, val_loader = create_dataloaders(args.data_dir, batch_size=args.batch_size)
 
     # 2. Build Model & Loss
-    model = build_model("2d", in_channels=1, out_channels=1, light=args.light).to(device)
+    model = build_model("2d", in_channels=1, out_channels=1, light=args.light)
+    if num_gpus > 1:
+        model = torch.nn.DataParallel(model)
+    model = model.to(device)
+
     criterion = DiceCELoss()
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
-    scaler = GradScaler(enabled=torch.cuda.is_available())
+    scaler = torch.amp.GradScaler(device_type=device.type, enabled=(device.type == "cuda"))
+
 
     best_val_dice = 0.0
     run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

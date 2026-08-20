@@ -309,16 +309,21 @@ def create_dataloaders(data_dir, batch_size=4, val_split=0.2, num_workers=2):
     image_paths, mask_paths = discover_data_paths(data_dir)
 
     num_total = len(image_paths)
-    num_val = int(num_total * val_split)
-    num_train = num_total - num_val
-
-    train_imgs, val_imgs = image_paths[num_val:], image_paths[:num_val]
-    train_masks, val_masks = mask_paths[num_val:], mask_paths[:num_val]
-
-    print(f"[Dataset] Train: {num_train} volumes | Val: {num_val} volumes (80/20 split)")
+    if num_total == 1:
+        # Sanity test mode with a single volume
+        train_imgs, val_imgs = image_paths, image_paths
+        train_masks, val_masks = mask_paths, mask_paths
+        print(f"[Dataset] Sanity test mode: using 1 volume for both training and validation.")
+    else:
+        num_val = max(1, int(num_total * val_split))
+        num_train = max(1, num_total - num_val)
+        train_imgs, val_imgs = image_paths[num_val:], image_paths[:num_val]
+        train_masks, val_masks = mask_paths[num_val:], mask_paths[:num_val]
+        print(f"[Dataset] Train: {num_train} volumes | Val: {num_val} volumes")
 
     train_dataset = Pancreas2DDataset(train_imgs, train_masks)
     val_dataset = Pancreas2DDataset(val_imgs, val_masks)
+
 
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True,

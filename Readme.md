@@ -67,15 +67,14 @@ drive.mount('/content/drive')
 
 ### Step 2: Data Preparation
 
-**Option A — If you downloaded raw DICOM from TCIA** (nested folder structure):
-
-Upload your TCIA download and annotations to Google Drive, then run `prepare_data.py`:
+Run `prepare_data.py` to convert your nested DICOMs and pair them with your labels:
 ```bash
-!python prepare_data.py \
+python prepare_data.py \
   --dicom_dir /content/drive/MyDrive/Pancreas-CT/pancreas_ct \
-  --labels_dir /content/drive/MyDrive/TCIA_Pancreas_Labels \
+  --labels_dir /content/drive/MyDrive/Pancreas-CT/lables \
   --output_dir ./data
 ```
+
 
 This converts the nested DICOM layout:
 ```text
