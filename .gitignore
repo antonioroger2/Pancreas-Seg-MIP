@@ -1,0 +1,32 @@
+# Byte-compiled / Python caches
+__pycache__/
+*.py[cod]
+
+# macOS system files
+.DS_Store
+
+# Datasets and checkpoints (too large for Git)
+data/
+data_preprocessed/
+preprocessed/
+checkpoints/
+results/
+predictions/
+*.nii
+*.nii.gz
+*.pth
+*.zip
+*.pdf
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# Splits (optionally tracked — small JSON files)
+# splits/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
