@@ -59,50 +59,6 @@ All code is optimized for execution on **Google Colab with a Tesla T4 GPU (~14.5
 
 ---
 
-## 3. Repository File Map
-
-```text
-Pancreas-Seg-MIP/
-│
-├── README.md                           # Master execution guide (this file)
-├── requirements.txt                    # Python dependencies with pinned minimum versions
-├── .gitignore                          # Excludes datasets, caches, and weight files
-│
-├── src/                                # Lightweight Python package (imports via src.*)
-│   ├── __init__.py
-│   ├── config.py                       # Single centralized configuration for all constants and paths
-│   ├── losses.py                       # Combined DiceLoss + FocalLoss implementation
-│   ├── metrics.py                      # Exact distance transform and surface distance algorithms
-│   ├── utils.py                        # Reproducibility seed, publication plots, and GPU benchmark
-│   ├── train.py                        # Resumable training loop engine with PyTorch AMP & logging
-│   ├── cross_validation.py             # 5-fold patient-level cross-validation orchestrator
-│   ├── evaluate.py                     # 3D volumetric evaluation (DSC, ASSD, HD95) & NIfTI export
-│   ├── inference.py                    # Standalone inference on new preprocessed CT scans
-│   ├── test_all.py                     # Comprehensive 12-stage automated test suite
-│   ├── models/                         # 3D attention U-Net architecture modules
-│   │   ├── __init__.py
-│   │   ├── attention.py                # 3D Additive Attention Gate module with LayerNorm
-│   │   └── model.py                    # Complete 3D Attention U-Net architecture
-│   └── data/                           # Data loading & preprocessing modules
-│       ├── __init__.py
-│       ├── preprocessing.py            # HU clipping, normalization, SimpleITK resampling, crop/pad
-│       ├── prepare_data.py             # 80-case batch preprocessing CLI & automated QC manifest generator
-│       ├── qc_preprocessing.py         # Preprocessing QC visualization & per-case audits
-│       └── dataset.py                  # 3D PyTorch Dataset with lazy NIfTI loading & data augmentation
-│
-├── notebooks/
-│   └── pancreas_segmentation_colab.ipynb  # Interactive step-by-step Google Colab notebook
-│
-└── docs/
-    ├── PAPER_REPRODUCTION_NOTES.md     # Full taxonomy of paper specs vs ambiguities vs assumptions
-    ├── REPRODUCTION_CHECKLIST.md       # Stage-by-stage requirement verification checklist
-    ├── SETUP.md                        # GPU setup & quick execution guide
-    ├── VALIDATION_REPORT.md            # Quantitative results template for training runs
-    └── REPORT.md                       # End-to-end paper reproduction results report
-```
-
----
-
 ## 4. Dataset & Directory Layout on Google Drive
 
 To keep code and large data cleanly isolated without duplication, your Google Drive must be organized as follows:
@@ -325,21 +281,3 @@ To maintain scientific integrity and prevent accidental data loss:
 - ❌ **DO NOT set `batch_size > 1` on Tesla T4:** 3D tensors `(1, 1, 224, 224, 128)` with feature maps will trigger CUDA Out-Of-Memory if batch size is increased.
 
 ---
-
-## 13. Troubleshooting & FAQ
-
-### Q1: Colab says `ModuleNotFoundError: No module named 'config'`
-**Fix:** Run Cell 4. It unpacks `pancreas_seg_code.zip` to `/content/drive/MyDrive/Pancreas-Seg-MIP` and adds it to `sys.path`.
-
-### Q2: CUDA Out-Of-Memory (OOM) during training
-**Fix:** Ensure `BATCH_SIZE = 1` in `config.py` and PyTorch AMP is enabled (`USE_AMP = True`). If using a custom script, verify you did not set `batch_size > 1`.
-
-### Q3: My Colab session disconnected after 3 hours. Do I have to restart from Epoch 1?
-**Fix:** No. Simply re-run Cell 1 through Cell 5, then run Cell 16. It will automatically load `latest_checkpoint.pth` and continue training from the last saved epoch.
-
-### Q4: How do I train a different fold?
-**Fix:** In Cell 16, change `--fold 0` to `--fold 1` (or 2, 3, 4). Each fold saves its checkpoints in its own dedicated folder (`checkpoints/fold_1/`, etc.).
-
----
-
-*For full reproduction records, refer to [PAPER_REPRODUCTION_NOTES.md](PAPER_REPRODUCTION_NOTES.md), [REPRODUCTION_CHECKLIST.md](REPRODUCTION_CHECKLIST.md), and [VALIDATION_REPORT.md](VALIDATION_REPORT.md).*
