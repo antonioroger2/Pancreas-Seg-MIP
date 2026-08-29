@@ -163,20 +163,20 @@ Python 3.12, PyTorch 2.13.0+cu130, SimpleITK 2.5.6, nibabel, MONAI 1.6.0, scipy,
 
 ### Commands
 ```bash
-python test_all.py                                   # 12/12
+python -m src.test_all                                   # 12/12
 
-python prepare_data.py --preprocess_all \
+python -m src.data.prepare_data --preprocess_all \
   --raw_dir data/Processed_data \
   --preprocessed_dir data/2025_Processed_data \
   --manifest data/2025_PREPROCESSING_MANIFEST.csv \
   --summary data/2025_PREPROCESSING_SUMMARY.md
 
 # Loss ablation (fold 0): --loss {dicefocal,dicebce,dice}  -> soft Dice won (0.317)
-python cross_validation.py --data_dir data/2025_Processed_data \
+python -m src.cross_validation --data_dir data/2025_Processed_data \
   --checkpoint_dir data/checkpoints --splits_dir data/splits \
   --epochs 300 --batch_size 1 --lr 6e-4 --num_workers 4 --loss dice
 
-python evaluate.py --data_dir data/2025_Processed_data \
+python -m src.evaluate --data_dir data/2025_Processed_data \
   --checkpoint_dir data/checkpoints --results_dir data/results \
   --splits_dir data/splits --all            # + --postprocess to filter components
 ```

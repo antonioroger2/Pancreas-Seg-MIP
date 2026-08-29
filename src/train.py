@@ -25,17 +25,17 @@ import torch
 import torch.optim as optim
 from tqdm import tqdm
 
-from config import (
+from src.config import (
     LEARNING_RATE, WEIGHT_DECAY, SCHEDULER_PATIENCE, SCHEDULER_FACTOR,
     SCHEDULER_MIN_LR, DEFAULT_EPOCHS, BATCH_SIZE, USE_AMP, SEED,
     ENCODER_CHANNELS, IN_CHANNELS, OUT_CHANNELS, EVAL_THRESHOLD,
     FOCAL_GAMMA, FOCAL_ALPHA, DICE_SMOOTH,
     DEFAULT_DATA_DIR, DEFAULT_CHECKPOINT_DIR,
 )
-from model import build_model, count_parameters
-from losses import DiceFocalLoss, DiceBCELoss, DiceLoss
-from dataset import create_simple_dataloaders, create_fold_dataloaders
-from utils import set_seed
+from src.models.model import build_model, count_parameters
+from src.losses import DiceFocalLoss, DiceBCELoss, DiceLoss
+from src.data.dataset import create_simple_dataloaders, create_fold_dataloaders
+from src.utils import set_seed
 
 
 def train_one_epoch(model, dataloader, criterion, optimizer, scaler, device):
@@ -346,7 +346,7 @@ def train(data_dir: str, checkpoint_dir: str, drive_checkpoint_dir: str = None,
                     writer.writerow([ep, f"{tl:.6f}", f"{vl:.6f}", f"{vd:.6f}", f"{current_lr:.2e}"])
 
     # Generate plots
-    from utils import plot_metrics
+    from src.utils import plot_metrics
     plots_dir = os.path.join(ckpt_dir, "plots")
     plot_metrics(train_losses, val_losses, val_dices, save_dir=plots_dir)
     if drive_ckpt_dir:

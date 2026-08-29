@@ -22,8 +22,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from attention import AttentionGate3D
-from config import ENCODER_CHANNELS, IN_CHANNELS, OUT_CHANNELS
+from src.models.attention import AttentionGate3D
+from src.config import ENCODER_CHANNELS, IN_CHANNELS, OUT_CHANNELS
 
 
 class DoubleConv3D(nn.Module):

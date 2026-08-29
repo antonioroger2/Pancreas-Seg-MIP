@@ -48,7 +48,7 @@ Pancreas-CT/
 
 ### Step 1: Run Integration Test Suite (Verify Everything Works)
 ```bash
-python test_all.py
+python -m src.test_all
 ```
 *Expected output:* **`12/12 tests passed - PASS [OK]`**
 
@@ -56,7 +56,7 @@ python test_all.py
 
 ### Step 2: Run 2025 Paper Batch Preprocessing (80 Cases)
 ```bash
-python prepare_data.py \
+python -m src.data.prepare_data \
     --preprocess_all \
     --raw_dir "/content/drive/MyDrive/Pancreas-CT/Processed_data" \
     --preprocessed_dir "/content/drive/MyDrive/Pancreas-CT/2025_Processed_data" \
@@ -74,7 +74,7 @@ python prepare_data.py \
 
 ### Step 3: Train 3D Attention U-Net (Fold 0)
 ```bash
-python cross_validation.py \
+python -m src.cross_validation \
     --data_dir "/content/drive/MyDrive/Pancreas-CT/2025_Processed_data" \
     --checkpoint_dir "/content/drive/MyDrive/Pancreas-CT/checkpoints" \
     --drive_checkpoint_dir "/content/drive/MyDrive/Pancreas-CT/checkpoints" \
@@ -95,7 +95,7 @@ python cross_validation.py \
 
 ### Step 4: Evaluate Trained Checkpoints
 ```bash
-python evaluate.py \
+python -m src.evaluate \
     --data_dir "/content/drive/MyDrive/Pancreas-CT/2025_Processed_data" \
     --checkpoint_dir "/content/drive/MyDrive/Pancreas-CT/checkpoints" \
     --results_dir "/content/drive/MyDrive/Pancreas-CT/results" \
@@ -122,9 +122,9 @@ python evaluate.py \
 
 | File | Purpose |
 |---|---|
-| `model.py` | 3D Attention U-Net architecture (`16 -> 32 -> 64 -> 128 -> 256`) |
-| `attention.py` | Additive Attention Gate with LayerNorm |
-| `losses.py` | Combined Dice + Focal Loss ($\gamma=2.0, \alpha=0.25$) |
-| `config.py` | All paper constants and paths in one central file |
-| `pancreas_segmentation_colab.ipynb` | Google Colab interactive notebook with step-by-step UI |
+| `src/model.py` | 3D Attention U-Net architecture (`16 -> 32 -> 64 -> 128 -> 256`) |
+| `src/attention.py` | Additive Attention Gate with LayerNorm |
+| `src/losses.py` | Combined Dice + Focal Loss ($\gamma=2.0, \alpha=0.25$) |
+| `src/config.py` | All paper constants and paths in one central file |
+| `notebooks/pancreas_segmentation_colab.ipynb` | Google Colab interactive notebook with step-by-step UI |
 | `README.md` | Full paper reproduction notes, theory, and background |

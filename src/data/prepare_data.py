@@ -26,15 +26,15 @@ import SimpleITK as sitk
 import nibabel as nib
 from tqdm import tqdm
 
-from config import (
+from src.config import (
     HU_MIN, HU_MAX, TARGET_SPACING, CROP_SIZE,
     DRIVE_2025_PROCESSED_DIR
 )
-from preprocessing import (
+from src.data.preprocessing import (
     resample_volume_sitk, normalize_to_01, center_crop_or_pad, clip_hu,
     center_crop_on_label
 )
-from utils import plot_3d_volume_slices
+from src.utils import plot_3d_volume_slices
 
 
 # ==============================================================================

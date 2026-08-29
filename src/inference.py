@@ -23,12 +23,12 @@ import nibabel as nib
 import torch
 from tqdm import tqdm
 
-from config import (
+from src.config import (
     ENCODER_CHANNELS, IN_CHANNELS, OUT_CHANNELS,
     EVAL_THRESHOLD, TARGET_SPACING, USE_AMP,
 )
-from model import build_model
-from preprocessing import preprocess_volume
+from src.models.model import build_model
+from src.data.preprocessing import preprocess_volume
 
 
 @torch.no_grad()

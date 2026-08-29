@@ -68,26 +68,37 @@ Pancreas-Seg-MIP/
 ├── requirements.txt                    # Python dependencies with pinned minimum versions
 ├── .gitignore                          # Excludes datasets, caches, and weight files
 │
-├── config.py                           # Single centralized configuration for all constants and paths
-├── attention.py                        # 3D Additive Attention Gate module with LayerNorm
-├── model.py                            # Complete 3D Attention U-Net architecture
-├── losses.py                           # Combined DiceLoss + FocalLoss implementation
-├── preprocessing.py                    # HU clipping, normalization, SimpleITK resampling, crop/pad
-├── prepare_data.py                     # 80-case batch preprocessing CLI & automated QC manifest generator
-├── dataset.py                          # 3D PyTorch Dataset with lazy NIfTI loading & data augmentation
-├── train.py                            # Resumable training loop engine with PyTorch AMP & logging
-├── cross_validation.py                 # 5-fold patient-level cross-validation orchestrator
-├── evaluate.py                         # 3D volumetric evaluation (DSC, ASSD, HD95) & NIfTI export
-├── inference.py                        # Standalone inference on new preprocessed CT scans
-├── metrics.py                          # Exact distance transform and surface distance algorithms
-├── utils.py                            # Reproducibility seed, publication plots, and GPU benchmark
-├── test_all.py                         # Comprehensive 12-stage automated test suite
+├── src/                                # Lightweight Python package (imports via src.*)
+│   ├── __init__.py
+│   ├── config.py                       # Single centralized configuration for all constants and paths
+│   ├── losses.py                       # Combined DiceLoss + FocalLoss implementation
+│   ├── metrics.py                      # Exact distance transform and surface distance algorithms
+│   ├── utils.py                        # Reproducibility seed, publication plots, and GPU benchmark
+│   ├── train.py                        # Resumable training loop engine with PyTorch AMP & logging
+│   ├── cross_validation.py             # 5-fold patient-level cross-validation orchestrator
+│   ├── evaluate.py                     # 3D volumetric evaluation (DSC, ASSD, HD95) & NIfTI export
+│   ├── inference.py                    # Standalone inference on new preprocessed CT scans
+│   ├── test_all.py                     # Comprehensive 12-stage automated test suite
+│   ├── models/                         # 3D attention U-Net architecture modules
+│   │   ├── __init__.py
+│   │   ├── attention.py                # 3D Additive Attention Gate module with LayerNorm
+│   │   └── model.py                    # Complete 3D Attention U-Net architecture
+│   └── data/                           # Data loading & preprocessing modules
+│       ├── __init__.py
+│       ├── preprocessing.py            # HU clipping, normalization, SimpleITK resampling, crop/pad
+│       ├── prepare_data.py             # 80-case batch preprocessing CLI & automated QC manifest generator
+│       ├── qc_preprocessing.py         # Preprocessing QC visualization & per-case audits
+│       └── dataset.py                  # 3D PyTorch Dataset with lazy NIfTI loading & data augmentation
 │
-├── pancreas_segmentation_colab.ipynb   # Interactive step-by-step Google Colab notebook
+├── notebooks/
+│   └── pancreas_segmentation_colab.ipynb  # Interactive step-by-step Google Colab notebook
 │
-├── PAPER_REPRODUCTION_NOTES.md         # Full taxonomy of paper specs vs ambiguities vs assumptions
-├── REPRODUCTION_CHECKLIST.md           # Stage-by-stage requirement verification checklist
-└── VALIDATION_REPORT.md                # Quantitative results template for training runs
+└── docs/
+    ├── PAPER_REPRODUCTION_NOTES.md     # Full taxonomy of paper specs vs ambiguities vs assumptions
+    ├── REPRODUCTION_CHECKLIST.md       # Stage-by-stage requirement verification checklist
+    ├── SETUP.md                        # GPU setup & quick execution guide
+    ├── VALIDATION_REPORT.md            # Quantitative results template for training runs
+    └── REPORT.md                       # End-to-end paper reproduction results report
 ```
 
 ---
@@ -145,7 +156,7 @@ To keep code and large data cleanly isolated without duplication, your Google Dr
 
 1. **Upload Dataset:** Place the folder `Pancreas-CT` (containing `Processed_data/images/` and `Processed_data/labels/`) in your Google Drive root (`My Drive`).
 2. **Upload Code:** Drag and drop `pancreas_seg_code.zip` into your Google Drive root (`My Drive`).
-3. **Open Colab:** Open `pancreas_segmentation_colab.ipynb` in [Google Colab](https://colab.research.google.com/).
+3. **Open Colab:** Open `notebooks/pancreas_segmentation_colab.ipynb` in [Google Colab](https://colab.research.google.com/).
 4. **Set GPU:** In Google Colab, go to **Runtime → Change runtime type** → select **T4 GPU** → click **Save**.
 5. **Run Cells 1 through 15:** Step through the verification and benchmark pipeline.
 6. **Train (Cell 16):** Run Cell 16 to start training on Fold 0.
@@ -170,7 +181,7 @@ The notebook `pancreas_segmentation_colab.ipynb` is structured into 17 clear sec
 ### Stage 3: Batch Preprocessing & Integrity Verification
 - **Cell 8 (Run 2025 Batch Preprocessing):** Executes memory-safe sequential preprocessing across all 80 cases:
   ```bash
-  python prepare_data.py \
+  python -m src.data.prepare_data \
       --preprocess_all \
       --raw_dir "/content/drive/MyDrive/Pancreas-CT/Processed_data" \
       --preprocessed_dir "/content/drive/MyDrive/Pancreas-CT/2025_Processed_data" \
@@ -182,7 +193,7 @@ The notebook `pancreas_segmentation_colab.ipynb` is structured into 17 clear sec
 
 ### Stage 4: Splitting, Testing & Benchmarking
 - **Cell 11 (Generate Patient-Level CV Splits):** Creates deterministic 5-fold CV splits (64 training/validation patients, 16 held-out test patients).
-- **Cell 12 (Run Test Suite):** Executes `python test_all.py` (Must output: **`12/12 tests passed - PASS [OK]`**).
+- **Cell 12 (Run Test Suite):** Executes `python -m src.test_all` (Must output: **`12/12 tests passed - PASS [OK]`**).
 - **Cell 13 (Model Parameter Audit):** Instantiates the model and prints total parameters (`5,668,269` ~ 21.62 MB).
 - **Cell 14 (T4 GPU Memory Benchmark):** Simulates a training step with input shape `(1, 1, 224, 224, 128)` and confirms peak VRAM is ~2.3 GB (well below the 14.5 GB limit).
 - **Cell 15 (Real-Data One-Batch Test):** Passes an actual preprocessed 3D volume through forward pass, loss calculation, backward pass, and optimizer step.

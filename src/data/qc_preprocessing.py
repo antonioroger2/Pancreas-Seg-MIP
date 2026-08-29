@@ -20,10 +20,10 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
-from config import (
+from src.config import (
     HU_MIN, HU_MAX, TARGET_SPACING, CROP_SIZE
 )
-from preprocessing import (
+from src.data.preprocessing import (
     resample_volume_sitk, normalize_to_01, center_crop_or_pad, clip_hu
 )
 

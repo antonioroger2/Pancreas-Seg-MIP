@@ -10,7 +10,7 @@ Reference:
 
 import numpy as np
 from scipy import ndimage
-from config import EVAL_THRESHOLD, TARGET_SPACING
+from src.config import EVAL_THRESHOLD, TARGET_SPACING
 
 
 def compute_dice(pred: np.ndarray, target: np.ndarray, threshold: float = EVAL_THRESHOLD) -> float:

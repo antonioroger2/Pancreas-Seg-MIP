@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from config import DICE_SMOOTH, FOCAL_GAMMA, FOCAL_ALPHA
+from src.config import DICE_SMOOTH, FOCAL_GAMMA, FOCAL_ALPHA
 
 
 class DiceLoss(nn.Module):

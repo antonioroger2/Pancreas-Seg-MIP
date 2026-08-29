@@ -30,15 +30,15 @@ import nibabel as nib
 import torch
 from tqdm import tqdm
 
-from config import (
+from src.config import (
     ENCODER_CHANNELS, IN_CHANNELS, OUT_CHANNELS,
     EVAL_THRESHOLD, TARGET_SPACING, CROP_SIZE,
     DEFAULT_DATA_DIR, DEFAULT_CHECKPOINT_DIR, DEFAULT_RESULTS_DIR,
     DEFAULT_SPLITS_DIR, USE_AMP,
 )
-from model import build_model
-from dataset import discover_data_paths, PancreasVolumeDataset
-from metrics import compute_all_metrics, aggregate_metrics
+from src.models.model import build_model
+from src.data.dataset import discover_data_paths, PancreasVolumeDataset
+from src.metrics import compute_all_metrics, aggregate_metrics
 
 
 def keep_largest_components(binary_mask: np.ndarray, n_components: int = 2):

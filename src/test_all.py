@@ -87,8 +87,8 @@ def test_dataset_synthetic():
     """Create synthetic volumes and verify dataset returns correct shapes."""
     import torch
     import nibabel as nib
-    from config import CROP_SIZE
-    from dataset import PancreasVolumeDataset
+    from src.config import CROP_SIZE
+    from src.data.dataset import PancreasVolumeDataset
     from torch.utils.data import DataLoader
 
     tmpdir = tempfile.mkdtemp(prefix="test_ds_")
@@ -143,8 +143,8 @@ def test_dataset_synthetic():
 # ==============================================================================
 def test_preprocessing():
     """Test HU clipping, normalization, and center crop/pad."""
-    from preprocessing import clip_hu, normalize_to_01, center_crop_or_pad
-    from config import HU_MIN, HU_MAX, CROP_SIZE
+    from src.data.preprocessing import clip_hu, normalize_to_01, center_crop_or_pad
+    from src.config import HU_MIN, HU_MAX, CROP_SIZE
 
     # HU clipping
     raw = np.array([-1000, -100, 0, 100, 240, 3000], dtype=np.float32)
@@ -182,7 +182,7 @@ def test_preprocessing():
 def test_model_forward():
     """Test model forward pass with multiple input sizes."""
     import torch
-    from model import build_model, count_parameters
+    from src.models.model import build_model, count_parameters
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = build_model().to(device)
@@ -209,7 +209,7 @@ def test_model_forward():
 def test_attention_gates():
     """Test attention gate tensor dimensions and value ranges."""
     import torch
-    from attention import AttentionGate3D
+    from src.models.attention import AttentionGate3D
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -244,7 +244,7 @@ def test_attention_gates():
 def test_loss_backward():
     """Test loss computation and gradient flow."""
     import torch
-    from losses import DiceFocalLoss, DiceLoss, FocalLoss
+    from src.losses import DiceFocalLoss, DiceLoss, FocalLoss
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -274,9 +274,9 @@ def test_loss_backward():
 def test_one_batch():
     """Test a single training step (forward + loss + backward + optimizer)."""
     import torch
-    from model import build_model
-    from losses import DiceFocalLoss
-    from config import USE_AMP
+    from src.models.model import build_model
+    from src.losses import DiceFocalLoss
+    from src.config import USE_AMP
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = build_model().to(device)
@@ -317,10 +317,10 @@ def test_one_patient_overfit():
     import torch
     import nibabel as nib
     import glob
-    from config import CROP_SIZE, USE_AMP
-    from model import build_model
-    from losses import DiceFocalLoss
-    from dataset import PancreasVolumeDataset
+    from src.config import CROP_SIZE, USE_AMP
+    from src.models.model import build_model
+    from src.losses import DiceFocalLoss
+    from src.data.dataset import PancreasVolumeDataset
     from torch.utils.data import DataLoader
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -381,10 +381,10 @@ def test_small_subset():
     import torch
     import nibabel as nib
     import glob
-    from config import USE_AMP
-    from model import build_model
-    from losses import DiceFocalLoss
-    from dataset import PancreasVolumeDataset
+    from src.config import USE_AMP
+    from src.models.model import build_model
+    from src.losses import DiceFocalLoss
+    from src.data.dataset import PancreasVolumeDataset
     from torch.utils.data import DataLoader
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -449,7 +449,7 @@ def test_small_subset():
 def test_checkpoint():
     """Test saving and loading a checkpoint."""
     import torch
-    from model import build_model
+    from src.models.model import build_model
 
     tmpdir = tempfile.mkdtemp(prefix="test_ckpt_")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -496,8 +496,8 @@ def test_checkpoint():
 def test_resume():
     """Test that training can resume from checkpoint."""
     import torch
-    from train import save_checkpoint, load_checkpoint
-    from model import build_model
+    from src.train import save_checkpoint, load_checkpoint
+    from src.models.model import build_model
 
     tmpdir = tempfile.mkdtemp(prefix="test_resume_")
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -544,7 +544,7 @@ def test_resume():
 # ==============================================================================
 def test_evaluation_metrics():
     """Test DSC, ASSD, HD95 computation."""
-    from metrics import compute_dice, compute_assd, compute_hd95, compute_all_metrics
+    from src.metrics import compute_dice, compute_assd, compute_hd95, compute_all_metrics
 
     # Perfect overlap
     mask = np.zeros((64, 64, 32), dtype=np.uint8)

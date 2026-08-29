@@ -22,7 +22,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import nibabel as nib
 
-from config import (
+from src.config import (
     HU_MIN, HU_MAX, TARGET_SPACING, CROP_SIZE,
     AUG_ROTATION_RANGE, AUG_FLIP_PROB, AUG_SHIFT_RANGE,
     BATCH_SIZE,
@@ -63,7 +63,7 @@ class PancreasVolumeDataset(Dataset):
         mask = mask_nii.get_fdata().astype(np.float32)
 
         if not self.preprocessed:
-            from preprocessing import normalize_to_01, center_crop_or_pad
+            from src.data.preprocessing import normalize_to_01, center_crop_or_pad
             image = normalize_to_01(image, HU_MIN, HU_MAX)
             mask = (mask > 0).astype(np.float32)
             image = center_crop_or_pad(image, CROP_SIZE)

@@ -17,14 +17,14 @@ import json
 import argparse
 import numpy as np
 
-from config import (
+from src.config import (
     N_FOLDS, N_TEST_CASES, SEED, DEFAULT_DATA_DIR,
     DEFAULT_CHECKPOINT_DIR, DEFAULT_SPLITS_DIR,
     DEFAULT_EPOCHS, BATCH_SIZE, LEARNING_RATE,
 )
-from dataset import discover_data_paths
-from train import train
-from utils import set_seed
+from src.data.dataset import discover_data_paths
+from src.train import train
+from src.utils import set_seed
 
 
 def create_patient_splits(n_patients: int, n_folds: int = N_FOLDS,

@@ -9,7 +9,7 @@
 
 ### 1.1 Test Suite Results
 
-Run `python test_all.py` to verify. Results will be populated here after execution.
+Run `python -m src.test_all` to verify. Results will be populated here after execution.
 
 | Test | Status | Notes |
 |---|---|---|

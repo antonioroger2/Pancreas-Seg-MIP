@@ -200,9 +200,9 @@ def memory_benchmark(device=None):
     total_mem = torch.cuda.get_device_properties(0).total_memory / 1e9
     print(f"  Total VRAM: {total_mem:.1f} GB")
 
-    from model import build_model, count_parameters
-    from losses import DiceFocalLoss
-    from config import CROP_SIZE, USE_AMP
+    from src.models.model import build_model, count_parameters
+    from src.losses import DiceFocalLoss
+    from src.config import CROP_SIZE, USE_AMP
 
     torch.cuda.reset_peak_memory_stats()
     torch.cuda.empty_cache()

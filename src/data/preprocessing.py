@@ -17,7 +17,7 @@ import SimpleITK as sitk
 import nibabel as nib
 import os
 
-from config import (
+from src.config import (
     HU_MIN, HU_MAX, NORM_MIN, NORM_MAX,
     TARGET_SPACING, CROP_SIZE,
 )
