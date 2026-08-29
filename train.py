@@ -33,7 +33,7 @@ from config import (
     DEFAULT_DATA_DIR, DEFAULT_CHECKPOINT_DIR,
 )
 from model import build_model, count_parameters
-from losses import DiceFocalLoss
+from losses import DiceFocalLoss, DiceBCELoss, DiceLoss
 from dataset import create_simple_dataloaders, create_fold_dataloaders
 from utils import set_seed
 
@@ -144,7 +144,9 @@ def train(data_dir: str, checkpoint_dir: str, drive_checkpoint_dir: str = None,
           fold: int = None, train_indices: list = None, val_indices: list = None,
           epochs: int = DEFAULT_EPOCHS, batch_size: int = BATCH_SIZE,
           lr: float = LEARNING_RATE, resume: bool = True,
-          num_workers: int = 2, preprocessed: bool = True):
+          num_workers: int = 2, preprocessed: bool = True,
+          loss: str = 'dicefocal', focal_gamma: float = None,
+          focal_alpha: float = None):
     """
     Main training function.
 
@@ -207,11 +209,20 @@ def train(data_dir: str, checkpoint_dir: str, drive_checkpoint_dir: str = None,
     print(f"  Parameters: {params['total']:,} ({params['total_MB']:.1f} MB)")
 
     # Loss, optimizer, scheduler
-    criterion = DiceFocalLoss(
-        dice_smooth=DICE_SMOOTH,
-        focal_gamma=FOCAL_GAMMA,
-        focal_alpha=FOCAL_ALPHA,
-    )
+    if loss == 'dice':
+        criterion = DiceLoss(smooth=DICE_SMOOTH)
+    elif loss == 'dicebce':
+        criterion = DiceBCELoss(smooth=DICE_SMOOTH, bce_weight=0.5)
+    elif loss == 'dicefocal':
+        gamma = FOCAL_GAMMA if focal_gamma is None else focal_gamma
+        alpha = FOCAL_ALPHA if focal_alpha is None else focal_alpha
+        criterion = DiceFocalLoss(
+            dice_smooth=DICE_SMOOTH,
+            focal_gamma=gamma,
+            focal_alpha=alpha,
+        )
+    else:
+        raise ValueError(f"Unknown loss: {loss}")
 
     # Paper: Adam optimizer, LR = 6e-4 (see config.py for ambiguity note)
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=WEIGHT_DECAY)
@@ -262,7 +273,7 @@ def train(data_dir: str, checkpoint_dir: str, drive_checkpoint_dir: str = None,
     print(f"  LR: {lr} (Paper: 6e-4, see config.py ambiguity note)")
     print(f"  Batch size: {batch_size}")
     print(f"  AMP: {USE_AMP}")
-    print(f"  Loss: Dice + Focal (γ={FOCAL_GAMMA})")
+    print(f"  Loss: {loss}")
     print(f"  Scheduler: ReduceLROnPlateau (patience={SCHEDULER_PATIENCE})")
     print(f"{'='*60}\n")
 
@@ -383,6 +394,13 @@ def main():
                         help="Cross-validation fold number")
     parser.add_argument("--seed", type=int, default=SEED,
                         help=f"Random seed (default: {SEED})")
+    parser.add_argument("--loss", type=str, default='dicefocal',
+                        choices=['dicefocal', 'dicebce', 'dice'],
+                        help="Loss function (default: dicefocal)")
+    parser.add_argument("--focal_gamma", type=float, default=None,
+                        help="Focal gamma override (dicefocal only)")
+    parser.add_argument("--focal_alpha", type=float, default=None,
+                        help="Focal alpha override (dicefocal only)")
     args = parser.parse_args()
 
     train(
@@ -395,6 +413,9 @@ def main():
         resume=not args.no_resume,
         num_workers=args.num_workers,
         fold=args.fold,
+        loss=args.loss,
+        focal_gamma=args.focal_gamma,
+        focal_alpha=args.focal_alpha,
     )
 
 

@@ -41,10 +41,28 @@ from dataset import discover_data_paths, PancreasVolumeDataset
 from metrics import compute_all_metrics, aggregate_metrics
 
 
+def keep_largest_components(binary_mask: np.ndarray, n_components: int = 2):
+    """
+    Keep only the n largest connected components of a binary mask.
+    Standard pancreas-segmentation post-processing to remove scattered
+    false-positive fragments. Falls back to the raw mask if empty.
+    """
+    from scipy import ndimage
+    if binary_mask.sum() == 0:
+        return binary_mask
+    lbl, num = ndimage.label(binary_mask)
+    if num <= n_components:
+        return binary_mask
+    sizes = ndimage.sum(binary_mask, lbl, range(1, num + 1))
+    keep = np.argsort(sizes)[-n_components:] + 1
+    return np.isin(lbl, keep).astype(binary_mask.dtype)
+
+
 @torch.no_grad()
 def evaluate_volumes(model, image_paths: list, mask_paths: list,
                      device: torch.device, save_preds_dir: str = None,
-                     voxel_spacing: tuple = TARGET_SPACING) -> list:
+                     voxel_spacing: tuple = TARGET_SPACING,
+                     postprocess: bool = False) -> list:
     """
     Evaluate model on a set of volumes. Returns per-patient metrics.
 
@@ -55,6 +73,7 @@ def evaluate_volumes(model, image_paths: list, mask_paths: list,
         device: torch device
         save_preds_dir: if set, save predicted masks as NIfTI here
         voxel_spacing: physical voxel spacing for distance metrics
+        postprocess: if True, keep only the 2 largest connected components
 
     Returns:
         list of dicts with keys: patient_id, dice, assd, hd95
@@ -81,6 +100,12 @@ def evaluate_volumes(model, image_paths: list, mask_paths: list,
         # Get prediction
         pred_prob = torch.sigmoid(output).squeeze().cpu().numpy()
         gt_mask = mask_tensor.squeeze().cpu().numpy()
+
+        # Optional largest-connected-component post-processing
+        if postprocess:
+            pred_bin_raw = (pred_prob > EVAL_THRESHOLD).astype(np.uint8)
+            pred_bin = keep_largest_components(pred_bin_raw, n_components=2)
+            pred_prob = pred_bin.astype(np.float32)
 
         # Compute metrics
         patient_id = dataset.get_patient_id(idx)
@@ -149,7 +174,7 @@ def save_results(results: list, output_dir: str, prefix: str = ""):
 
 
 def evaluate_fold(fold: int, data_dir: str, checkpoint_dir: str,
-                  splits_dir: str, results_dir: str):
+                  splits_dir: str, results_dir: str, postprocess: bool = False):
     """Evaluate a trained fold on its validation set."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -182,7 +207,7 @@ def evaluate_fold(fold: int, data_dir: str, checkpoint_dir: str,
     preds_dir = os.path.join(fold_results_dir, "predictions")
 
     results = evaluate_volumes(model, val_images, val_masks, device,
-                               save_preds_dir=preds_dir)
+                               save_preds_dir=preds_dir, postprocess=postprocess)
     agg = save_results(results, fold_results_dir, prefix=f"fold_{fold}_")
 
     return results, agg
@@ -190,7 +215,7 @@ def evaluate_fold(fold: int, data_dir: str, checkpoint_dir: str,
 
 def evaluate_test_set(data_dir: str, checkpoint_dir: str,
                       splits_dir: str, results_dir: str,
-                      use_best_fold: int = None):
+                      use_best_fold: int = None, postprocess: bool = False):
     """Evaluate on the independent test set."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -230,7 +255,7 @@ def evaluate_test_set(data_dir: str, checkpoint_dir: str,
     preds_dir = os.path.join(test_results_dir, "predictions")
 
     results = evaluate_volumes(model, test_images, test_masks, device,
-                               save_preds_dir=preds_dir)
+                               save_preds_dir=preds_dir, postprocess=postprocess)
     agg = save_results(results, test_results_dir, prefix="test_")
 
     return results, agg
@@ -250,6 +275,8 @@ def main():
                         help="Evaluate on independent test set")
     parser.add_argument("--all", action="store_true",
                         help="Evaluate all folds + test set")
+    parser.add_argument("--postprocess", action="store_true",
+                        help="Keep 2 largest connected components of predictions")
     args = parser.parse_args()
 
     if args.all or (args.fold is None and not args.test):
@@ -257,16 +284,16 @@ def main():
         splits = json.load(open(os.path.join(args.splits_dir, "patient_splits.json")))
         for fold_data in splits['folds']:
             evaluate_fold(fold_data['fold'], args.data_dir, args.checkpoint_dir,
-                         args.splits_dir, args.results_dir)
+                         args.splits_dir, args.results_dir, postprocess=args.postprocess)
         # Test set
         evaluate_test_set(args.data_dir, args.checkpoint_dir,
-                         args.splits_dir, args.results_dir)
+                         args.splits_dir, args.results_dir, postprocess=args.postprocess)
     elif args.test:
         evaluate_test_set(args.data_dir, args.checkpoint_dir,
-                         args.splits_dir, args.results_dir)
+                         args.splits_dir, args.results_dir, postprocess=args.postprocess)
     elif args.fold is not None:
         evaluate_fold(args.fold, args.data_dir, args.checkpoint_dir,
-                     args.splits_dir, args.results_dir)
+                     args.splits_dir, args.results_dir, postprocess=args.postprocess)
 
 
 if __name__ == "__main__":

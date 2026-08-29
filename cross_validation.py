@@ -143,7 +143,10 @@ def run_cross_validation(data_dir: str = DEFAULT_DATA_DIR,
                           epochs: int = DEFAULT_EPOCHS,
                           batch_size: int = BATCH_SIZE,
                           lr: float = LEARNING_RATE,
-                          num_workers: int = 2):
+                          num_workers: int = 2,
+                          loss: str = 'dicefocal',
+                          focal_gamma: float = None,
+                          focal_alpha: float = None):
     """
     Run 5-fold cross-validation (or a specific fold).
 
@@ -204,6 +207,9 @@ def run_cross_validation(data_dir: str = DEFAULT_DATA_DIR,
             lr=lr,
             resume=True,
             num_workers=num_workers,
+            loss=loss,
+            focal_gamma=focal_gamma,
+            focal_alpha=focal_alpha,
         )
         all_results.append(result)
 
@@ -235,6 +241,11 @@ def main():
     parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
     parser.add_argument("--lr", type=float, default=LEARNING_RATE)
     parser.add_argument("--num_workers", type=int, default=2)
+    parser.add_argument("--loss", type=str, default='dicefocal',
+                        choices=['dicefocal', 'dicebce', 'dice'],
+                        help="Loss function (default: dicefocal)")
+    parser.add_argument("--focal_gamma", type=float, default=None)
+    parser.add_argument("--focal_alpha", type=float, default=None)
     args = parser.parse_args()
 
     run_cross_validation(
@@ -247,6 +258,9 @@ def main():
         batch_size=args.batch_size,
         lr=args.lr,
         num_workers=args.num_workers,
+        loss=args.loss,
+        focal_gamma=args.focal_gamma,
+        focal_alpha=args.focal_alpha,
     )
 
 
