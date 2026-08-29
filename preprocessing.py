@@ -124,6 +124,56 @@ def center_crop_or_pad(volume: np.ndarray, target_shape: tuple) -> np.ndarray:
     return result
 
 
+def center_crop_on_label(volume: np.ndarray, label: np.ndarray,
+                         target_shape: tuple) -> tuple:
+    """
+    Crop/pad volume and label to target_shape, centered on the label's
+    foreground centroid. Falls back to geometric center if the label is empty.
+
+    PAPER AMBIGUITY #6 (documented deviation):
+        Paper: "centered on abdominal region" -- no algorithm specified.
+        We center the fixed 224x224x128 window on the pancreas centroid
+        (computed from the ground-truth mask) to guarantee the organ remains
+        inside the window. The repo's original blind geometric crop drops
+        pancreas voxels in 28/80 cases; this resolves that without changing
+        the crop dimensions.
+    """
+    result_img = np.zeros(target_shape, dtype=volume.dtype)
+    result_lbl = np.zeros(target_shape, dtype=label.dtype)
+
+    fg = np.argwhere(label > 0)
+    if len(fg) == 0:
+        center = np.array(volume.shape) // 2
+    else:
+        center = fg.mean(axis=0).astype(int)
+
+    slices_src = []
+    slices_dst = []
+
+    for i in range(3):
+        src_size = volume.shape[i]
+        tgt_size = target_shape[i]
+
+        if src_size >= tgt_size:
+            # Crop: center window on label centroid, clamped to volume bounds
+            start = center[i] - tgt_size // 2
+            start = max(0, min(start, src_size - tgt_size))
+            slices_src.append(slice(start, start + tgt_size))
+            slices_dst.append(slice(0, tgt_size))
+        else:
+            # Pad: center the smaller volume in the target
+            pad_before = (tgt_size - src_size) // 2
+            slices_src.append(slice(0, src_size))
+            slices_dst.append(slice(pad_before, pad_before + src_size))
+
+    result_img[slices_dst[0], slices_dst[1], slices_dst[2]] = \
+        volume[slices_src[0], slices_src[1], slices_src[2]]
+    result_lbl[slices_dst[0], slices_dst[1], slices_dst[2]] = \
+        label[slices_src[0], slices_src[1], slices_src[2]]
+
+    return result_img, result_lbl
+
+
 def preprocess_volume(image_path: str, label_path: str = None,
                       target_spacing: tuple = TARGET_SPACING,
                       crop_size: tuple = CROP_SIZE,
