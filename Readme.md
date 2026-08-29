@@ -55,7 +55,7 @@ All code is optimized for execution on **Google Colab with a Tesla T4 GPU (~14.5
 | **Scheduler** | ReduceLROnPlateau (patience=100) | `torch.optim.lr_scheduler.ReduceLROnPlateau` |
 | **Batch Size** | 1 (hardware-constrained) | `BATCH_SIZE = 1` with PyTorch AMP enabled |
 | **Dataset** | NIH Pancreas-CT (TCIA v2, 80 cases) | 16 test holdout + 5-fold CV (64 patients) |
-| **Evaluation Metrics**| Volumetric DSC, ASSD (mm), HD95 (mm) | `metrics.py` (physical voxel spacing aware) |
+| **Evaluation Metrics** | Volumetric DSC, ASSD (mm), HD95 (mm) | `metrics.py` (physical voxel spacing aware) |
 
 ---
 
