@@ -15,17 +15,14 @@
 ## Table of Contents
 1. [Project Overview](#1-project-overview)
 2. [Target Paper Specifications](#2-target-paper-specifications)
-3. [Repository File Map](#3-repository-file-map)
-4. [Dataset & Directory Layout on Google Drive](#4-dataset--directory-layout-on-google-drive)
-5. [Quick Start: 3-Minute Setup](#5-quick-start-3-minute-setup)
-6. [Cell-by-Cell Colab Execution Walkthrough](#6-cell-by-cell-colab-execution-walkthrough)
-7. [2025 Preprocessing Pipeline Deep Dive](#7-2025-preprocessing-pipeline-deep-dive)
-8. [3D Attention U-Net Architecture](#8-3d-attention-u-net-architecture)
-9. [Loss Function & Training Dynamics](#9-loss-function--training-dynamics)
-10. [Cross-Validation & Evaluation Protocol](#10-cross-validation--evaluation-protocol)
-11. [Paper Ambiguities & Implementation Decisions](#11-paper-ambiguities--implementation-decisions)
-12. [Critical Safety Rules: What NOT to Modify](#12-critical-safety-rules-what-not-to-modify)
-13. [Troubleshooting & FAQ](#13-troubleshooting--faq)
+3. [Dataset & Directory Layout on Google Drive](#3-dataset--directory-layout-on-google-drive)
+4. [Quick Start: 3-Minute Setup](#4-quick-start-3-minute-setup)
+5. [Cell-by-Cell Colab Execution Walkthrough](#5-cell-by-cell-colab-execution-walkthrough)
+6. [2025 Preprocessing Pipeline Deep Dive](#6-2025-preprocessing-pipeline-deep-dive)
+7. [3D Attention U-Net Architecture](#7-3d-attention-u-net-architecture)
+8. [Loss Function & Training Dynamics](#8-loss-function--training-dynamics)
+9. [Cross-Validation & Evaluation Protocol](#9-cross-validation--evaluation-protocol)
+10. [Paper Ambiguities & Implementation Decisions](#10-paper-ambiguities--implementation-decisions)
 
 ---
 
@@ -59,7 +56,7 @@ All code is optimized for execution on **Google Colab with a Tesla T4 GPU (~14.5
 
 ---
 
-## 4. Dataset & Directory Layout on Google Drive
+## 3. Dataset & Directory Layout on Google Drive
 
 To keep code and large data cleanly isolated without duplication, your Google Drive must be organized as follows:
 
@@ -108,7 +105,7 @@ To keep code and large data cleanly isolated without duplication, your Google Dr
 
 ---
 
-## 5. Quick Start: 3-Minute Setup
+## 4. Quick Start: 3-Minute Setup
 
 1. **Upload Dataset:** Place the folder `Pancreas-CT` (containing `Processed_data/images/` and `Processed_data/labels/`) in your Google Drive root (`My Drive`).
 2. **Upload Code:** Drag and drop `pancreas_seg_code.zip` into your Google Drive root (`My Drive`).
@@ -119,7 +116,7 @@ To keep code and large data cleanly isolated without duplication, your Google Dr
 
 ---
 
-## 6. Cell-by-Cell Colab Execution Walkthrough
+## 5. Cell-by-Cell Colab Execution Walkthrough
 
 The notebook `pancreas_segmentation_colab.ipynb` is structured into 17 clear sections:
 
@@ -160,7 +157,7 @@ The notebook `pancreas_segmentation_colab.ipynb` is structured into 17 clear sec
 
 ---
 
-## 7. 2025 Preprocessing Pipeline Deep Dive
+## 6. 2025 Preprocessing Pipeline Deep Dive
 
 The 2025 paper defines a strict sequential preprocessing protocol:
 
@@ -187,7 +184,7 @@ Raw CT Volume (e.g. 512x512x240, Spacing: 0.86x0.86x1.0 mm)
 
 ---
 
-## 8. 3D Attention U-Net Architecture
+## 7. 3D Attention U-Net Architecture
 
 The model is built in `model.py` and `attention.py` following Figure 1 of the paper:
 
@@ -222,7 +219,7 @@ Where $x$ is the skip-connection feature map, $g$ is the gating signal from the 
 
 ---
 
-## 9. Loss Function & Training Dynamics
+## 8. Loss Function & Training Dynamics
 
 ### Combined Loss
 $$\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{Dice}} + \mathcal{L}_{\text{Focal}}$$
@@ -242,7 +239,7 @@ If Colab disconnects, simply re-run Cell 16. It will automatically detect `lates
 
 ---
 
-## 10. Cross-Validation & Evaluation Protocol
+## 9. Cross-Validation & Evaluation Protocol
 
 ### Patient-Level Partitioning
 - **Total Patients:** 80 verified cases.
@@ -258,7 +255,7 @@ Evaluation in `evaluate.py` and `metrics.py` computes full 3D surface distances 
 
 ---
 
-## 11. Paper Ambiguities & Implementation Decisions
+## 10. Paper Ambiguities & Implementation Decisions
 
 All reproduction decisions are mathematically documented in [PAPER_REPRODUCTION_NOTES.md](PAPER_REPRODUCTION_NOTES.md):
 
@@ -268,16 +265,5 @@ All reproduction decisions are mathematically documented in [PAPER_REPRODUCTION_
 4. **Crop Center:** Paper states "centered on abdominal region" without mathematical coordinates. We use blind volume geometric center-crop to strictly prevent ground-truth mask leakage.
 5. **Batch Size:** Not stated in paper. Set to `1` due to Tesla T4 GPU 14.5 GB VRAM limits for 3D tensors.
 6. **Case Count:** Paper text states 81/82 cases ($5 \times 13 + 16$). Standard verified TCIA v2 dataset has 80 cases.
-
----
-
-## 12. Critical Safety Rules: What NOT to Modify
-
-To maintain scientific integrity and prevent accidental data loss:
-- ❌ **NEVER modify or overwrite `Processed_data/`:** This is your untouched raw baseline.
-- ❌ **DO NOT change model architecture in `model.py`:** Must strictly match Figure 1 of the 2025 paper.
-- ❌ **DO NOT change the loss function in `losses.py`:** Must remain combined Dice + Focal Loss.
-- ❌ **DO NOT crop using ground-truth masks:** Blind cropping ensures valid clinical generalization.
-- ❌ **DO NOT set `batch_size > 1` on Tesla T4:** 3D tensors `(1, 1, 224, 224, 128)` with feature maps will trigger CUDA Out-Of-Memory if batch size is increased.
 
 ---
