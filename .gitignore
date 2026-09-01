@@ -10,7 +10,6 @@ data/
 data_preprocessed/
 preprocessed/
 checkpoints/
-results/
 predictions/
 *.nii
 *.nii.gz
