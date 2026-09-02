@@ -8,7 +8,7 @@
 > **Complete Reproducibility & Execution Guide**  
 > Target Paper: *"Deep Learning Model with Attention Mechanism for a 3D Pancreas Segmentation in CT Scans"*  
 > *Mathematics* 2025, 13(24), 3942 — DOI: [10.3390/math13243942](https://doi.org/10.3390/math13243942)  
-> Authors: Antonio Roger Tondji, Chiara Scapicchio, Francesca Lizzi, Maria Evelina Fantacci, Piergiorgio Oliva, Alessandra Retico.
+> Authors: Tondji, Chiara Scapicchio, Francesca Lizzi, Maria Evelina Fantacci, Piergiorgio Oliva, Alessandra Retico.
 
 ---
 
