@@ -34,3 +34,9 @@ Thumbs.db
 /prep/
 data_fetch*.log
 dist/
+
+# nnU-Net working dirs, venv, caches, logs (GPU box)
+/nnunet/
+/.venv/
+/.cache/
+/logs/
