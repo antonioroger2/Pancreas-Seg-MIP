@@ -89,6 +89,8 @@ def main(argv=None):
     set_seed(a.seed)
     torch.backends.cudnn.deterministic, torch.backends.cudnn.benchmark = False, True
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    if os.environ.get("REQUIRE_CUDA") == "1" and device != "cuda":
+        raise SystemExit("REQUIRE_CUDA=1 but no CUDA device is visible (check CUDA_VISIBLE_DEVICES)")
     amp = not a.no_amp and device == "cuda"
     split = json.load(open(a.splits))
     fold = split["folds"][a.fold]

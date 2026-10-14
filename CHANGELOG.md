@@ -63,3 +63,8 @@ Every decision, fallback and number below comes from a saved file produced by co
 - New README.md (renamed from Readme.md), REPRODUCE.md, docs/FINAL_RESULTS.md (skeleton, no numbers until Kaggle results).
 - Review-1 docs (docs/*.md, results/vis_results.md) get a HISTORICAL banner with the corrections: 0.808 not ~0.86; GT-centroid crop invalid (leakage); "Not alignment" corrected; "plateau" -> peak then decline (overfitting); real hardware (Review-1: RTX 6000 Ada; paper: T4 16 GB, D9); old 2.3 GB VRAM claim replaced by measured 6.55 GB (R0) / 6.32 GB (R3). Historical numbers themselves are left as logged.
 - D9: the Review-1 slide claim that the authors had bigger GPUs is wrong (paper: T4 16 GB) and must be deleted from the slides (MIP.pdf is not in this workspace; teammate B to edit the .tex).
+
+## Portability fix (any Linux/cloud GPU runner, e.g. RTX 6000 Ada)
+- Launcher and benchmark no longer assume 2 GPUs: `--n_gpus` (default = visible GPUs) drives the longest-first schedule; the launcher runs one queue per GPU, so a single GPU runs its queue sequentially and sanity mode runs R0 then R3. Queues are Python threads (no bash dependency); launched runs set REQUIRE_CUDA=1, so a missing GPU fails loudly instead of silently training on CPU. Default output is `results/` (Kaggle paths are passed explicitly by the notebook). `--batch_size` passthrough completes the OOM ladder.
+- New `scripts/prepare_cloud.sh`: IDC download -> T1 on all 80 -> T2 -> npy, with the same gates as the notebook.
+- Verified locally only as a smoke test: sanity mode on 1 GPU (R0 then R3, 4 steps each, exit 0). Full-schedule launch was not re-run locally (user asked to stop local runs).

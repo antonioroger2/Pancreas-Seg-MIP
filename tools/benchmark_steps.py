@@ -1,8 +1,8 @@
 """T5 benchmark (run on the Kaggle T4): seconds/step + peak VRAM for R0-R4, one validation pass and one full-volume
-test inference; proposes the shared step budget N, validation interval K and a 2-GPU schedule.
+test inference; proposes the shared step budget N, validation interval K and a per-GPU schedule.
 
 Rule: every run gets the SAME N (multiple of 100). K is set so validation costs ~15 % of the slowest run.
-N = the largest value for which R0-R3 (longest-first on 2 GPUs, one process per GPU) finish within --wall_hours.
+N = the largest value for which R0-R3 (longest-first on --n_gpus GPUs, one process each) finish within --wall_hours.
   python tools/benchmark_steps.py --data /tmp/prep --wall_hours 3 --out results/benchmark.json
 """
 import argparse, json, math, os, sys, time
@@ -67,7 +67,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True); ap.add_argument("--splits", default="splits/patient_splits.json")
     ap.add_argument("--iters", type=int, default=20); ap.add_argument("--workers", type=int, default=2)
-    ap.add_argument("--wall_hours", type=float, default=3.0, help="wall-clock budget for R0-R3 on 2 GPUs")
+    ap.add_argument("--wall_hours", type=float, default=3.0, help="wall-clock budget for R0-R3 on all GPUs")
+    ap.add_argument("--n_gpus", type=int, default=max(1, torch.cuda.device_count()), help="GPUs available to the launcher")
     ap.add_argument("--patch_size", type=int, nargs=3, default=list(PATCH_SIZE))
     ap.add_argument("--runs", default="R0_baseline,R1_patch,R2_gn,R3_final,R4_noattn")
     ap.add_argument("--out", default="results/benchmark.json")
@@ -92,7 +93,7 @@ def main():
         K = max(50, int(math.ceil(N / n_checks / 50.0)) * 50)
         mins = {r: (N * ok[r]["s_per_step"] + math.ceil(N / K) * ok[r]["val_s_per_case"] * n_val
                     + ok[r]["test_s_per_case"] * 16) / 60 for r in ok}
-        gpus = [[], []]
+        gpus = [[] for _ in range(a.n_gpus)]
         for r in sorted(core, key=lambda r: -mins[r]):                      # longest-first onto the freer GPU
             min(gpus, key=lambda g: sum(mins[x] for x in g)).append(r)
         return K, mins, gpus, max(sum(mins[x] for x in g) for g in gpus)
@@ -103,7 +104,7 @@ def main():
     K, mins, gpus, span = plan(N)
     rec = dict(N=N, K=K, n_val_checks=math.ceil(N / K), wall_hours=a.wall_hours, makespan_min=round(span, 1),
                est_minutes_per_run={r: round(m, 1) for r, m in mins.items()},
-               schedule={"GPU0": gpus[0], "GPU1": gpus[1]}, n_val=n_val, patch_runs_ge_3000=N >= 3000,
+               schedule={f"GPU{i}": g for i, g in enumerate(gpus)}, n_gpus=a.n_gpus, n_val=n_val, patch_runs_ge_3000=N >= 3000,
                hours_needed_for_N3000=round(plan(3000)[3] / 60, 2), gpu=torch.cuda.get_device_name(0))
     os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
     json.dump(dict(runs=rows, recommendation=rec), open(a.out, "w"), indent=1)
