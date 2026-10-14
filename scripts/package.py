@@ -7,7 +7,7 @@ import argparse, glob, os, zipfile
 
 CODE = ["src/**/*.py", "tools/*.py", "scripts/*", "splits/*.json", "notebooks/kaggle_ablation.ipynb",
         "results/alignment/alignment_summary.json", "results/alignment/alignment_report.csv",
-        "data/raw_labels/*.nii.gz", "data/metadata.csv", "requirements.txt", "README.md", "REPRODUCE.md", "CHANGELOG.md"]
+        "data/raw_labels/*.nii.gz", "data/metadata.csv", "requirements.txt", "README.md", "REPRODUCE.md", "CHANGELOG.md", "HANDOFF.md"]
 
 
 def zip_files(path, files, root="."):
