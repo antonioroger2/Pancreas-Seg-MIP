@@ -1,0 +1,234 @@
+{
+    "foreground_mean": {
+        "Dice": 0.8425966914623574,
+        "FN": 18128.69230769231,
+        "FP": 14137.846153846154,
+        "IoU": 0.7298153073306712,
+        "TN": 62490929.23076923,
+        "TP": 88890.38461538461,
+        "n_pred": 103028.23076923077,
+        "n_ref": 107019.07692307692
+    },
+    "mean": {
+        "1": {
+            "Dice": 0.8425966914623574,
+            "FN": 18128.69230769231,
+            "FP": 14137.846153846154,
+            "IoU": 0.7298153073306712,
+            "TN": 62490929.23076923,
+            "TP": 88890.38461538461,
+            "n_pred": 103028.23076923077,
+            "n_ref": 107019.07692307692
+        }
+    },
+    "metric_per_case": [
+        {
+            "metrics": {
+                "1": {
+                    "Dice": 0.7431217045686346,
+                    "FN": 3006,
+                    "FP": 38551,
+                    "IoU": 0.5912439631345471,
+                    "TN": 57832157,
+                    "TP": 60110,
+                    "n_pred": 98661,
+                    "n_ref": 63116
+                }
+            },
+            "prediction_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/results/Dataset801_Pancreas/nnUNetTrainerBudget__nnUNetResEncUNetMPlans__3d_fullres/fold_0/validation/PANCREAS_0004.nii.gz",
+            "reference_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/preprocessed/Dataset801_Pancreas/gt_segmentations/PANCREAS_0004.nii.gz"
+        },
+        {
+            "metrics": {
+                "1": {
+                    "Dice": 0.8343929987284016,
+                    "FN": 5782,
+                    "FP": 11930,
+                    "IoU": 0.7158441891805172,
+                    "TN": 56036484,
+                    "TP": 44620,
+                    "n_pred": 56550,
+                    "n_ref": 50402
+                }
+            },
+            "prediction_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/results/Dataset801_Pancreas/nnUNetTrainerBudget__nnUNetResEncUNetMPlans__3d_fullres/fold_0/validation/PANCREAS_0012.nii.gz",
+            "reference_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/preprocessed/Dataset801_Pancreas/gt_segmentations/PANCREAS_0012.nii.gz"
+        },
+        {
+            "metrics": {
+                "1": {
+                    "Dice": 0.8500508752009202,
+                    "FN": 31810,
+                    "FP": 8864,
+                    "IoU": 0.739207376108436,
+                    "TN": 81108677,
+                    "TP": 115289,
+                    "n_pred": 124153,
+                    "n_ref": 147099
+                }
+            },
+            "prediction_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/results/Dataset801_Pancreas/nnUNetTrainerBudget__nnUNetResEncUNetMPlans__3d_fullres/fold_0/validation/PANCREAS_0016.nii.gz",
+            "reference_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/preprocessed/Dataset801_Pancreas/gt_segmentations/PANCREAS_0016.nii.gz"
+        },
+        {
+            "metrics": {
+                "1": {
+                    "Dice": 0.894935954583878,
+                    "FN": 11593,
+                    "FP": 11152,
+                    "IoU": 0.8098498528624933,
+                    "TN": 81145024,
+                    "TP": 96871,
+                    "n_pred": 108023,
+                    "n_ref": 108464
+                }
+            },
+            "prediction_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/results/Dataset801_Pancreas/nnUNetTrainerBudget__nnUNetResEncUNetMPlans__3d_fullres/fold_0/validation/PANCREAS_0017.nii.gz",
+            "reference_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/preprocessed/Dataset801_Pancreas/gt_segmentations/PANCREAS_0017.nii.gz"
+        },
+        {
+            "metrics": {
+                "1": {
+                    "Dice": 0.8332346501796951,
+                    "FN": 13645,
+                    "FP": 10577,
+                    "IoU": 0.7141407227323152,
+                    "TN": 52081922,
+                    "TP": 60512,
+                    "n_pred": 71089,
+                    "n_ref": 74157
+                }
+            },
+            "prediction_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/results/Dataset801_Pancreas/nnUNetTrainerBudget__nnUNetResEncUNetMPlans__3d_fullres/fold_0/validation/PANCREAS_0029.nii.gz",
+            "reference_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/preprocessed/Dataset801_Pancreas/gt_segmentations/PANCREAS_0029.nii.gz"
+        },
+        {
+            "metrics": {
+                "1": {
+                    "Dice": 0.8810292393686607,
+                    "FN": 15276,
+                    "FP": 12734,
+                    "IoU": 0.7873568017734185,
+                    "TN": 53607797,
+                    "TP": 103713,
+                    "n_pred": 116447,
+                    "n_ref": 118989
+                }
+            },
+            "prediction_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/results/Dataset801_Pancreas/nnUNetTrainerBudget__nnUNetResEncUNetMPlans__3d_fullres/fold_0/validation/PANCREAS_0034.nii.gz",
+            "reference_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/preprocessed/Dataset801_Pancreas/gt_segmentations/PANCREAS_0034.nii.gz"
+        },
+        {
+            "metrics": {
+                "1": {
+                    "Dice": 0.8664036980533909,
+                    "FN": 21557,
+                    "FP": 7604,
+                    "IoU": 0.7642965106410494,
+                    "TN": 53615801,
+                    "TP": 94558,
+                    "n_pred": 102162,
+                    "n_ref": 116115
+                }
+            },
+            "prediction_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/results/Dataset801_Pancreas/nnUNetTrainerBudget__nnUNetResEncUNetMPlans__3d_fullres/fold_0/validation/PANCREAS_0038.nii.gz",
+            "reference_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/preprocessed/Dataset801_Pancreas/gt_segmentations/PANCREAS_0038.nii.gz"
+        },
+        {
+            "metrics": {
+                "1": {
+                    "Dice": 0.7987792128415871,
+                    "FN": 17608,
+                    "FP": 32434,
+                    "IoU": 0.6649728521025394,
+                    "TN": 81115273,
+                    "TP": 99325,
+                    "n_pred": 131759,
+                    "n_ref": 116933
+                }
+            },
+            "prediction_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/results/Dataset801_Pancreas/nnUNetTrainerBudget__nnUNetResEncUNetMPlans__3d_fullres/fold_0/validation/PANCREAS_0042.nii.gz",
+            "reference_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/preprocessed/Dataset801_Pancreas/gt_segmentations/PANCREAS_0042.nii.gz"
+        },
+        {
+            "metrics": {
+                "1": {
+                    "Dice": 0.8601834913436324,
+                    "FN": 33704,
+                    "FP": 6498,
+                    "IoU": 0.7546683916322894,
+                    "TN": 54624228,
+                    "TP": 123666,
+                    "n_pred": 130164,
+                    "n_ref": 157370
+                }
+            },
+            "prediction_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/results/Dataset801_Pancreas/nnUNetTrainerBudget__nnUNetResEncUNetMPlans__3d_fullres/fold_0/validation/PANCREAS_0052.nii.gz",
+            "reference_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/preprocessed/Dataset801_Pancreas/gt_segmentations/PANCREAS_0052.nii.gz"
+        },
+        {
+            "metrics": {
+                "1": {
+                    "Dice": 0.8521630658881824,
+                    "FN": 8174,
+                    "FP": 17425,
+                    "IoU": 0.7424077763690152,
+                    "TN": 57048014,
+                    "TP": 73779,
+                    "n_pred": 91204,
+                    "n_ref": 81953
+                }
+            },
+            "prediction_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/results/Dataset801_Pancreas/nnUNetTrainerBudget__nnUNetResEncUNetMPlans__3d_fullres/fold_0/validation/PANCREAS_0054.nii.gz",
+            "reference_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/preprocessed/Dataset801_Pancreas/gt_segmentations/PANCREAS_0054.nii.gz"
+        },
+        {
+            "metrics": {
+                "1": {
+                    "Dice": 0.8790609480812641,
+                    "FN": 21336,
+                    "FP": 12149,
+                    "IoU": 0.7842183271040083,
+                    "TN": 50438612,
+                    "TP": 121695,
+                    "n_pred": 133844,
+                    "n_ref": 143031
+                }
+            },
+            "prediction_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/results/Dataset801_Pancreas/nnUNetTrainerBudget__nnUNetResEncUNetMPlans__3d_fullres/fold_0/validation/PANCREAS_0055.nii.gz",
+            "reference_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/preprocessed/Dataset801_Pancreas/gt_segmentations/PANCREAS_0055.nii.gz"
+        },
+        {
+            "metrics": {
+                "1": {
+                    "Dice": 0.8291763914711816,
+                    "FN": 26431,
+                    "FP": 8115,
+                    "IoU": 0.7081992414835838,
+                    "TN": 81146251,
+                    "TP": 83843,
+                    "n_pred": 91958,
+                    "n_ref": 110274
+                }
+            },
+            "prediction_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/results/Dataset801_Pancreas/nnUNetTrainerBudget__nnUNetResEncUNetMPlans__3d_fullres/fold_0/validation/PANCREAS_0063.nii.gz",
+            "reference_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/preprocessed/Dataset801_Pancreas/gt_segmentations/PANCREAS_0063.nii.gz"
+        },
+        {
+            "metrics": {
+                "1": {
+                    "Dice": 0.831224758701218,
+                    "FN": 25751,
+                    "FP": 5759,
+                    "IoU": 0.7111929901745124,
+                    "TN": 52581840,
+                    "TP": 77594,
+                    "n_pred": 83353,
+                    "n_ref": 103345
+                }
+            },
+            "prediction_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/results/Dataset801_Pancreas/nnUNetTrainerBudget__nnUNetResEncUNetMPlans__3d_fullres/fold_0/validation/PANCREAS_0066.nii.gz",
+            "reference_file": "/dist_home/nooglers/nooglers/barani/Pancreas-Seg-MIP/nnunet/preprocessed/Dataset801_Pancreas/gt_segmentations/PANCREAS_0066.nii.gz"
+        }
+    ]
+}
