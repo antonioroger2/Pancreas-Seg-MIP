@@ -1,5 +1,15 @@
 # GPU Setup & Quick Execution Guide
 
+> **HISTORICAL (Review-1, Aug 2026) - read with these corrections (Oct 2026, see CHANGELOG.md):**
+> (1) the paper reports Dice **0.808 +- 0.021** (NIH, Table 1), not ~0.86; (2) runs 2-3 used a **ground-truth-centroid
+> crop** (`center_crop_on_label`, now removed): the label position leaked into the input at validation/test time, so their
+> scores are **invalid** as a baseline; (3) the source data is aligned (T1, `results/alignment/`), but the Review-1
+> preprocessed arrays were not: its overlay figure shows GT on heart/lung slices for test patients 0073/0030, so
+> "Not alignment" was wrong; (4) validation Dice **peaked (~0.3, epochs 40-80) then fell** - overfitting, not a plateau;
+> (5) Review-1 runs used 2x RTX 6000 Ada; the paper used a single **T4 16 GB**, so hardware does not explain the gap;
+> (6) `src/cross_validation.py` and the epoch trainer were replaced by the step-based pipeline (README.md, REPRODUCE.md).
+
+
 This document provides exact instructions to quickly clone, set up, and train the **3D Attention U-Net Pancreas Segmentation** pipeline on any GPU machine (Google Colab, local Linux GPU server, AWS EC2, Lambda Labs, etc.).
 
 ---
@@ -113,7 +123,7 @@ python -m src.evaluate \
 ## 4. Hardware Requirements
 
 - **GPU:** NVIDIA GPU with $\ge 8$ GB VRAM (Tested on Google Colab Tesla T4 14.5 GB).
-- **Peak Training VRAM:** ~2.3 GB (with `batch_size=1` & AMP).
+- **Peak Training VRAM:** measured 6.55 GB for R0 (224x224x128, batch 1, AMP) and 6.32 GB for R3 (2x128x128x96) - the old ~2.3 GB claim was wrong.
 - **Disk Space:** ~2.5 GB for preprocessed volumes.
 
 ---

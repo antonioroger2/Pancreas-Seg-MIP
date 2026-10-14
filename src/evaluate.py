@@ -5,6 +5,7 @@ Loads <run_dir>/config.json + best.pth, predicts every case with the run's own i
 paste back; R1-R4: sliding window), thresholds at 0.5 and writes
   <run_dir>/<split>_per_patient.csv   Dice, Jaccard, precision, recall, HD95, ASSD, volumes, V_pred/V_GT
   <run_dir>/summary.json (test) or val_summary.json  mean / SD / median / min / max + inf counts
+  <run_dir>/preds_<split>/<PID>.npz   bit-packed binary prediction (for figures / volumetry)
 This is the ONLY script that reads the test patients (rule 2).
   python -m src.evaluate --run_dir results/R0_baseline --data /tmp/prep [--split test]
 """
@@ -50,7 +51,10 @@ def main(argv=None):
         t = time.time()
         img, lbl = load_case(a.data, pid)
         prob = torch.sigmoid(predict_logits(model, img, cfg["mode"], cfg["roi"], a.overlap, cfg["crop"], device))
-        m = compute_all_metrics((prob > EVAL_THRESHOLD).cpu().numpy(), np.asarray(lbl) > 0, TARGET_SPACING)
+        mask = (prob > EVAL_THRESHOLD).cpu().numpy()
+        m = compute_all_metrics(mask, np.asarray(lbl) > 0, TARGET_SPACING)
+        os.makedirs(os.path.join(a.run_dir, f"preds_{a.split}"), exist_ok=True)
+        np.savez_compressed(os.path.join(a.run_dir, f"preds_{a.split}", f"{pid}.npz"), bits=np.packbits(mask), shape=mask.shape)
         rows.append(dict(patient=pid, **m, seconds=round(time.time() - t, 2)))
         print(f"{pid} Dice {m['dice']:.4f} J {m['jaccard']:.4f} P {m['precision']:.3f} R {m['recall']:.3f} "
               f"HD95 {m['hd95']:.2f} ASSD {m['assd']:.2f} V {m['vol_pred_ml']:.1f}/{m['vol_gt_ml']:.1f} mL", flush=True)
@@ -62,6 +66,11 @@ def main(argv=None):
               indent=1)
     print(f"{a.split}: Dice {summary['dice']['mean']:.4f} +- {summary['dice']['sd']:.4f} (n={summary['n_cases']}, "
           f"empty preds {summary['n_empty_pred']})")
+
+
+def load_pred(run_dir, pid, split="test"):
+    z = np.load(os.path.join(run_dir, f"preds_{split}", f"{pid}.npz"))
+    return np.unpackbits(z["bits"])[:int(np.prod(z["shape"]))].reshape(z["shape"]).astype(bool)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,15 @@
 # Pancreas Segmentation — Paper Reproduction Report
 
+> **HISTORICAL (Review-1, Aug 2026) - read with these corrections (Oct 2026, see CHANGELOG.md):**
+> (1) the paper reports Dice **0.808 +- 0.021** (NIH, Table 1), not ~0.86; (2) runs 2-3 used a **ground-truth-centroid
+> crop** (`center_crop_on_label`, now removed): the label position leaked into the input at validation/test time, so their
+> scores are **invalid** as a baseline; (3) the source data is aligned (T1, `results/alignment/`), but the Review-1
+> preprocessed arrays were not: its overlay figure shows GT on heart/lung slices for test patients 0073/0030, so
+> "Not alignment" was wrong; (4) validation Dice **peaked (~0.3, epochs 40-80) then fell** - overfitting, not a plateau;
+> (5) Review-1 runs used 2x RTX 6000 Ada; the paper used a single **T4 16 GB**, so hardware does not explain the gap;
+> (6) `src/cross_validation.py` and the epoch trainer were replaced by the step-based pipeline (README.md, REPRODUCE.md).
+
+
 > **Target paper:** *"Deep Learning Model with Attention Mechanism for a 3D Pancreas Segmentation in CT Scans"*
 > Mathematics 2025, 13(24), 3942 — DOI: 10.3390/math13243942
 > Authors: Tondji, Scapicchio, Lizzi, Fantacci, Oliva, Retico.
@@ -25,7 +35,7 @@ Three runs were executed. Each addresses a documented ambiguity/deficiency.
 | **Test ASSD (mm)** | 13.67 | 9.17 | **8.62** |
 | **Test HD95 (mm)** | 42.46 | 34.55 | **32.36** |
 
-The paper reports volumetric DSC around **0.86**. Our best reproduction reaches **0.32** on the
+The paper reports volumetric DSC **0.808 ± 0.021** (NIH, Table 1). Our best reproduction reaches **0.32** on the
 held-out test set. Diagnostic analysis (below) shows the residual gap is a **model-capacity /
 task-difficulty ceiling** for a from-scratch, batch-size-1 3D U-Net on 64 training patients with a
 fixed 224×224×128 window — not a pipeline bug and not fixable by loss/threshold/crop choices
@@ -131,7 +141,7 @@ pancreas-centroid crop. Output in `data/2025_Processed_data/`.
 
 ---
 
-## 6. Diagnostic: Why the gap to the paper (~0.86) persists
+## 6. Diagnostic: Why the gap to the paper (0.808) persists
 
 We instrumented the trained model per patient: precision/recall and DSC vs threshold.
 
@@ -146,11 +156,12 @@ Findings:
    converge to the same behavior (precision ~0.22) — the objective is not the binding constraint.
 2. **Not a BatchNorm/batch-size artifact.** Recomputed batch statistics at inference give identical
    DSC to running stats, ruling out BN noise.
-3. **Not alignment.** Image/label geometry verified slice-aligned; GT-masked intensities in
-   soft-tissue range.
+3. ~~Not alignment.~~ **CORRECTED (Oct 2026):** the source NIfTI/DICOM are aligned, but the Review-1 overlay
+   figure places the GT of test patients 0073/0030 on heart/lung slices, i.e. the Review-1 preprocessed arrays were
+   misaligned relative to the source (see results/alignment/ and CHANGELOG.md T1).
 4. **Conclusion:** a 5.7M-param 3D U-Net trained from scratch on 52 patients/fold (batch 1, fixed
    224×224×128 window, organ ~1–2% of volume) has a practical DSC ceiling ≈ 0.3–0.35. The paper's
-   ~0.86 requires a substantially stronger recipe (larger crop/full-volume context, deeper
+   0.808 requires a substantially stronger recipe (larger crop/full-volume context, deeper
    supervision, ensembling, and/or more data) that its ambiguities do not pin down.
 
 ---

@@ -1,5 +1,15 @@
 # System Run Log
 
+> **HISTORICAL (Review-1, Aug 2026) - read with these corrections (Oct 2026, see CHANGELOG.md):**
+> (1) the paper reports Dice **0.808 +- 0.021** (NIH, Table 1), not ~0.86; (2) runs 2-3 used a **ground-truth-centroid
+> crop** (`center_crop_on_label`, now removed): the label position leaked into the input at validation/test time, so their
+> scores are **invalid** as a baseline; (3) the source data is aligned (T1, `results/alignment/`), but the Review-1
+> preprocessed arrays were not: its overlay figure shows GT on heart/lung slices for test patients 0073/0030, so
+> "Not alignment" was wrong; (4) validation Dice **peaked (~0.3, epochs 40-80) then fell** - overfitting, not a plateau;
+> (5) Review-1 runs used 2x RTX 6000 Ada; the paper used a single **T4 16 GB**, so hardware does not explain the gap;
+> (6) `src/cross_validation.py` and the epoch trainer were replaced by the step-based pipeline (README.md, REPRODUCE.md).
+
+
 > **Project:** 3D Attention U-Net for Pancreas Segmentation in CT Scans (paper reproduction)
 > **Period:** 2026-08-25 → 2026-08-28
 > **Hardware:** 2× NVIDIA RTX 6000 Ada (48 GB each)
@@ -166,7 +176,7 @@ Artifacts: `data/run3_dice_loss/`, live checkpoints `data/checkpoints/fold_{0..4
 | 4 | Blind crop dropped pancreas voxels (28/80) | Added `center_crop_on_label`; 77/80 @ 100% retention |
 | 5 | Accidental concurrent training process (resumed a stale checkpoint) | Killed both processes, cleared `data/checkpoints`, relaunched cleanly |
 | 6 | `@torch.no_grad` decorator misplaced after adding `keep_largest_components` → `.numpy()` grad error | Restored decorator above `evaluate_volumes` |
-| 7 | Over-segmentation (precision ~0.22) caps DSC across all losses | Diagnosed as capacity/data ceiling (BN recomputed-stats test and alignment checks rule out pipeline bugs); see `REPRODUCTION_REPORT.md` |
+| 7 | Over-segmentation (precision ~0.22) caps DSC across all losses | Review-1 diagnosis "capacity/data ceiling" is **superseded**: the GT-centroid crop leaked label position and the Review-1 arrays were misaligned (CHANGELOG.md T1) |
 
 ---
 

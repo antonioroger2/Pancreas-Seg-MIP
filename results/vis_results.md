@@ -1,5 +1,15 @@
 # Visual Results — 3D Attention U-Net Pancreas Segmentation
 
+> **HISTORICAL (Review-1, Aug 2026) - read with these corrections (Oct 2026, see CHANGELOG.md):**
+> (1) the paper reports Dice **0.808 +- 0.021** (NIH, Table 1), not ~0.86; (2) runs 2-3 used a **ground-truth-centroid
+> crop** (`center_crop_on_label`, now removed): the label position leaked into the input at validation/test time, so their
+> scores are **invalid** as a baseline; (3) the source data is aligned (T1, `results/alignment/`), but the Review-1
+> preprocessed arrays were not: its overlay figure shows GT on heart/lung slices for test patients 0073/0030, so
+> "Not alignment" was wrong; (4) validation Dice **peaked (~0.3, epochs 40-80) then fell** - overfitting, not a plateau;
+> (5) Review-1 runs used 2x RTX 6000 Ada; the paper used a single **T4 16 GB**, so hardware does not explain the gap;
+> (6) `src/cross_validation.py` and the epoch trainer were replaced by the step-based pipeline (README.md, REPRODUCE.md).
+
+
 > This document explains the five figures in the `results/` folder. They summarize the final
 > reproduction run (run 3: pancreas-centroid crop, soft-Dice loss, 300 epochs/fold) on the
 > NIH Pancreas-CT dataset (80 patients; 16 held-out test).
@@ -38,11 +48,11 @@ Left: **train loss** per epoch. Right: **validation Dice** per epoch, all five f
 
 Reading the figure:
 - Train loss falls smoothly from ~1.0 to ~0.4 — the model is learning.
-- Validation Dice climbs quickly in the first ~60 epochs, then plateaus with high epoch-to-epoch
-  variance (the validation set is only ~12 patients/fold, so it is noisy).
-- All folds converge to the same plateau (0.26–0.33), i.e. consistent behavior across splits.
+- Validation Dice climbs quickly, **peaks (~0.3) around epochs 40-80 and then falls (to ~0.13)** while the train
+  loss keeps decreasing: this is **overfitting/degradation, not a plateau** (corrected Oct 2026).
+- Best-checkpoint validation Dice 0.26–0.33 across folds.
 
-The plateau is the "capacity ceiling" discussed in the report — not a training-instability artifact.
+The early peak followed by a decline argues against a pure capacity ceiling; see CHANGELOG.md (T1) for the alignment finding.
 
 ---
 

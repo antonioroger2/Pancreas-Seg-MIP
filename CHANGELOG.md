@@ -48,3 +48,18 @@ Every decision, fallback and number below comes from a saved file produced by co
 - FALLBACK (bandwidth): data is fetched and preprocessed ON KAGGLE from IDC S3 (`tools/fetch_idc.py`) + bundled TCIA labels (`data/raw_labels`, 80/80 identical to the course labels: array, spacing, direction). The notebook gates on T1 for all 80 (identity rule, air <= 0.01, no shape mismatch), T2 QC 80/80 and splits == committed file before training.
 - One process per GPU (CUDA_VISIBLE_DEVICES), runs chained train -> evaluate; schedule and N, K from benchmark.json; resumable; T6 sanity = short R0 (GPU0) + R3 (GPU1), validation only.
 - `python scripts/package.py` -> dist/pancreas-code.zip (1.1 MB: code, splits, T1 rule, TCIA labels, IDC metadata).
+
+## T8 - Clinical extensions (src/tta.py, src/clinical.py) - code done, results pending Kaggle
+- C1: volumes from each run's non-TTA test prediction (`test_per_patient.csv`): Pearson r, MAE, mean abs % error, bias, 95 % LoA, V ratio -> `results/clinical/volumes.csv`, `volumetry_summary.json`, `volumetry.png` (scatter + Bland-Altman).
+- C2 (R3): 4-flip TTA (identity + one flip per axis, D10) at overlap 0.25, entropy of the mean probability, case score = mean entropy in mask. DECISIONS fixed before results, both on VALIDATION only: flag threshold = P75 of validation scores; "poor case" = Dice < P25 of validation TTA Dice. Test: Spearman rho, flag precision/recall, TTA vs single Dice (Wilcoxon). Case cards best/median/worst (slices chosen at GT z-percentiles 25/50/75 for display only).
+- `evaluate.py` now also saves bit-packed test masks (`preds_test/*.npz`) for figures.
+- Smoke-tested end to end on untrained toy runs (degenerate: empty masks -> NaN statistics, as expected).
+
+## T9 - Figures (tools/make_figures.py) - code done, results pending Kaggle
+- (a) paper vs R0 vs R3 table (.csv/.md/.tex, paper Jaccard "n/r", D4 footnote), (b) best/median/worst Input|GT|R0|R3, (c) loss + val Dice curves, (d) ablation table + bars with per-patient dots, (e) per-patient Dice, volume scatter, precision-vs-recall (over-segmentation), (f) paired Wilcoxon (R0 vs R3 + consecutive pairs; HD95 pairs with inf dropped and n reported), `captions.md`, and `final_results_auto.md` with the verdict per addition (rule fixed in advance: |delta Dice| < 0.02 = no clear difference). Only the paper's Table 1 values are constants (quoted with source).
+- Colours: reference categorical order (R0 blue, R1 orange, R2 aqua, R3 yellow, R4 magenta); scatter plots limited to R0 vs R3 (<= 3 series).
+
+## T10 - Docs
+- New README.md (renamed from Readme.md), REPRODUCE.md, docs/FINAL_RESULTS.md (skeleton, no numbers until Kaggle results).
+- Review-1 docs (docs/*.md, results/vis_results.md) get a HISTORICAL banner with the corrections: 0.808 not ~0.86; GT-centroid crop invalid (leakage); "Not alignment" corrected; "plateau" -> peak then decline (overfitting); real hardware (Review-1: RTX 6000 Ada; paper: T4 16 GB, D9); old 2.3 GB VRAM claim replaced by measured 6.55 GB (R0) / 6.32 GB (R3). Historical numbers themselves are left as logged.
+- D9: the Review-1 slide claim that the authors had bigger GPUs is wrong (paper: T4 16 GB) and must be deleted from the slides (MIP.pdf is not in this workspace; teammate B to edit the .tex).
