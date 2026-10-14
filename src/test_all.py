@@ -1,7 +1,7 @@
 """
 test_all.py - Comprehensive Test Suite for 3D Attention U-Net Pipeline.
 
-Runs 12 categories of tests:
+Runs 18 tests (1-12 original, adapted to the step-based pipeline; 13-18 new for T2-T4):
   1.  Dependency test
   2.  Dataset test (synthetic)
   3.  Preprocessing test
@@ -47,6 +47,20 @@ def run_test(name, test_fn):
     return results[name]
 
 
+def _synthetic_prep(tmpdir, n=3, shape=(64, 64, 48)):
+    """Write n synthetic T2-format cases (<tmp>/cases/*.npz) + a split file; returns (data_dir, splits_path)."""
+    os.makedirs(os.path.join(tmpdir, "cases"), exist_ok=True)
+    rng = np.random.default_rng(0)
+    ids = [f"PANCREAS_{9000 + i:04d}" for i in range(n)]
+    for pid in ids:
+        lbl = np.zeros(shape, np.uint8); lbl[20:40, 22:42, 14:30] = 1
+        img = np.clip(rng.random(shape) * 0.3 + 0.5 * lbl, 0, 1).astype(np.float16)
+        np.savez_compressed(os.path.join(tmpdir, "cases", f"{pid}.npz"), image=img, label=lbl)
+    sp = os.path.join(tmpdir, "splits.json")
+    json.dump(dict(test=[], folds=[dict(fold=0, train=ids[:-1], val=ids[-1:])]), open(sp, "w"))
+    return tmpdir, sp
+
+
 # ==============================================================================
 # TEST 1: Dependencies
 # ==============================================================================
@@ -84,56 +98,20 @@ def test_dependencies():
 # TEST 2: Synthetic Dataset
 # ==============================================================================
 def test_dataset_synthetic():
-    """Create synthetic volumes and verify dataset returns correct shapes."""
+    """R0 crop sampler and R1+ patch sampler return correct shapes from synthetic T2-format cases."""
     import torch
-    import nibabel as nib
-    from src.config import CROP_SIZE
-    from src.data.dataset import PancreasVolumeDataset
     from torch.utils.data import DataLoader
-
+    from src.config import CROP_SIZE
+    from src.data.dataset import CropSampler, PatchSampler
     tmpdir = tempfile.mkdtemp(prefix="test_ds_")
-    img_dir = os.path.join(tmpdir, "images")
-    lbl_dir = os.path.join(tmpdir, "labels")
-    os.makedirs(img_dir)
-    os.makedirs(lbl_dir)
-
-    H, W, D = CROP_SIZE
-    affine = np.eye(4)
-    n_vols = 2
-
-    for i in range(n_vols):
-        img = np.random.rand(H, W, D).astype(np.float32)
-        lbl = np.zeros((H, W, D), dtype=np.uint8)
-        lbl[80:140, 80:140, 40:80] = 1
-
-        nib.save(nib.Nifti1Image(img, affine), os.path.join(img_dir, f"vol_{i:04d}.nii.gz"))
-        nib.save(nib.Nifti1Image(lbl, affine), os.path.join(lbl_dir, f"vol_{i:04d}.nii.gz"))
-
-    import glob
-    img_paths = sorted(glob.glob(os.path.join(img_dir, "*.nii.gz")))
-    lbl_paths = sorted(glob.glob(os.path.join(lbl_dir, "*.nii.gz")))
-
-    # Without augmentation
-    ds = PancreasVolumeDataset(img_paths, lbl_paths, augment=False, preprocessed=True)
-    img_t, msk_t = ds[0]
-
-    assert img_t.shape == (1, H, W, D), f"Image shape wrong: {img_t.shape}"
-    assert msk_t.shape == (1, H, W, D), f"Mask shape wrong: {msk_t.shape}"
-    assert img_t.dtype == torch.float32
-    print(f"  [OK] Dataset shape: img={img_t.shape}, mask={msk_t.shape}")
-
-    # With DataLoader
-    loader = DataLoader(ds, batch_size=1)
-    batch_img, batch_msk = next(iter(loader))
-    assert batch_img.shape == (1, 1, H, W, D), f"Batch shape wrong: {batch_img.shape}"
-    print(f"  [OK] Batch shape: {batch_img.shape}")
-
-    # With augmentation
-    ds_aug = PancreasVolumeDataset(img_paths, lbl_paths, augment=True, preprocessed=True)
-    img_aug, msk_aug = ds_aug[0]
-    assert img_aug.shape == (1, H, W, D)
-    print(f"  [OK] Augmented shape: {img_aug.shape}")
-
+    data, _ = _synthetic_prep(tmpdir)
+    ids = [f"PANCREAS_{9000 + i:04d}" for i in range(3)]
+    img_t, msk_t = CropSampler(data, ids, 4)[0]
+    assert img_t.shape == (1, *CROP_SIZE) and msk_t.shape == (1, *CROP_SIZE) and img_t.dtype == torch.float32
+    print(f"  [OK] R0 crop sample: {tuple(img_t.shape)} (64x64x48 volume zero-padded)")
+    x, y = next(iter(DataLoader(PatchSampler(data, ids, 4, size=(32, 32, 32)), batch_size=2)))
+    assert x.shape == (2, 1, 32, 32, 32) and set(torch.unique(y).tolist()) <= {0.0, 1.0}
+    print(f"  [OK] Patch batch: {tuple(x.shape)}")
     shutil.rmtree(tmpdir, ignore_errors=True)
     return True
 
@@ -313,132 +291,41 @@ def test_one_batch():
 # TEST 8: One-Patient Overfit
 # ==============================================================================
 def test_one_patient_overfit():
-    """Train on a single synthetic volume for several steps to verify overfitting."""
+    """Train on a single synthetic volume for several steps: the loss must decrease."""
     import torch
-    import nibabel as nib
-    import glob
-    from src.config import CROP_SIZE, USE_AMP
     from src.models.model import build_model
     from src.losses import DiceFocalLoss
-    from src.data.dataset import PancreasVolumeDataset
-    from torch.utils.data import DataLoader
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    # Create synthetic volume
-    tmpdir = tempfile.mkdtemp(prefix="test_overfit_")
-    H, W, D = 64, 64, 32  # Small for speed
-    img = np.random.rand(H, W, D).astype(np.float32)
-    lbl = np.zeros((H, W, D), dtype=np.uint8)
-    lbl[20:44, 20:44, 8:24] = 1
-
-    affine = np.eye(4)
-    img_path = os.path.join(tmpdir, "img.nii.gz")
-    lbl_path = os.path.join(tmpdir, "lbl.nii.gz")
-    nib.save(nib.Nifti1Image(img, affine), img_path)
-    nib.save(nib.Nifti1Image(lbl, affine), lbl_path)
-
-    # Use small model for this test
+    torch.manual_seed(0)
+    img = torch.rand(1, 1, 64, 64, 32, device=device)
+    lbl = torch.zeros_like(img); lbl[..., 20:44, 20:44, 8:24] = 1
     model = build_model(encoder_channels=[4, 8, 16, 32, 64]).to(device)
-    criterion = DiceFocalLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-
-    # Load data
-    ds = PancreasVolumeDataset([img_path], [lbl_path], augment=False, preprocessed=True)
-    img_t, msk_t = ds[0]
-    img_t = img_t.unsqueeze(0).to(device)
-    msk_t = msk_t.unsqueeze(0).to(device)
-
-    # Train for a few steps
+    criterion, optimizer = DiceFocalLoss(), torch.optim.Adam(model.parameters(), lr=1e-3)
     model.train()
     losses = []
-    for step in range(20):
-        optimizer.zero_grad()
-        out = model(img_t)
-        loss = criterion(out, msk_t)
-        loss.backward()
-        optimizer.step()
+    for _ in range(20):
+        optimizer.zero_grad(); loss = criterion(model(img), lbl); loss.backward(); optimizer.step()
         losses.append(loss.item())
-
-    # Loss should decrease
-    improved = losses[-1] < losses[0]
-    print(f"  Loss: {losses[0]:.4f} -> {losses[-1]:.4f} ({'v improving' if improved else '^ not improving'})")
-
-    if improved:
-        print(f"  [OK] Overfit test passed (loss decreased)")
-    else:
-        print(f"  [WARN] Loss did not decrease -- may need more steps")
-
-    shutil.rmtree(tmpdir, ignore_errors=True)
-    return improved
+    print(f"  Loss: {losses[0]:.4f} -> {losses[-1]:.4f}")
+    return losses[-1] < losses[0]
 
 
 # ==============================================================================
 # TEST 9: Small Subset
 # ==============================================================================
 def test_small_subset():
-    """Verify the full pipeline works with 2 synthetic volumes."""
-    import torch
-    import nibabel as nib
-    import glob
-    from src.config import USE_AMP
-    from src.models.model import build_model
-    from src.losses import DiceFocalLoss
-    from src.data.dataset import PancreasVolumeDataset
-    from torch.utils.data import DataLoader
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+    """End-to-end: src.train (patch mode, tiny) on 2 synthetic train + 1 val volume, then src.evaluate on val."""
+    from src import train, evaluate
     tmpdir = tempfile.mkdtemp(prefix="test_subset_")
-    img_dir = os.path.join(tmpdir, "images")
-    lbl_dir = os.path.join(tmpdir, "labels")
-    os.makedirs(img_dir)
-    os.makedirs(lbl_dir)
-
-    H, W, D = 64, 64, 32
-    affine = np.eye(4)
-
-    for i in range(2):
-        img = np.random.rand(H, W, D).astype(np.float32)
-        lbl = np.zeros((H, W, D), dtype=np.uint8)
-        lbl[20:44, 20:44, 8:24] = 1
-        nib.save(nib.Nifti1Image(img, affine), os.path.join(img_dir, f"vol_{i:04d}.nii.gz"))
-        nib.save(nib.Nifti1Image(lbl, affine), os.path.join(lbl_dir, f"vol_{i:04d}.nii.gz"))
-
-    img_paths = sorted(glob.glob(os.path.join(img_dir, "*.nii.gz")))
-    lbl_paths = sorted(glob.glob(os.path.join(lbl_dir, "*.nii.gz")))
-
-    ds_train = PancreasVolumeDataset(img_paths[:1], lbl_paths[:1], augment=True, preprocessed=True)
-    ds_val = PancreasVolumeDataset(img_paths[1:], lbl_paths[1:], augment=False, preprocessed=True)
-
-    loader_train = DataLoader(ds_train, batch_size=1)
-    loader_val = DataLoader(ds_val, batch_size=1)
-
-    model = build_model(encoder_channels=[4, 8, 16, 32, 64]).to(device)
-    criterion = DiceFocalLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-
-    # One epoch training
-    model.train()
-    for img_t, msk_t in loader_train:
-        img_t, msk_t = img_t.to(device), msk_t.to(device)
-        optimizer.zero_grad()
-        out = model(img_t)
-        loss = criterion(out, msk_t)
-        loss.backward()
-        optimizer.step()
-        print(f"  Train loss: {loss.item():.4f}")
-
-    # Validation
-    model.eval()
-    with torch.no_grad():
-        for img_t, msk_t in loader_val:
-            img_t = img_t.to(device)
-            out = model(img_t)
-            pred = torch.sigmoid(out)
-            print(f"  Val pred range: [{pred.min().item():.4f}, {pred.max().item():.4f}]")
-
-    print(f"  [OK] Full pipeline works with 2 volumes")
+    data, sp = _synthetic_prep(tmpdir)
+    out = os.path.join(tmpdir, "run")
+    train.main(["--run_name", "t9", "--out", out, "--data", data, "--splits", sp, "--patch", "--norm", "group",
+                "--deepsup", "--patch_size", "32", "32", "32", "--steps", "4", "--val_every", "2", "--workers", "0"])
+    for f in ("train_log.csv", "best.pth", "last.pth", "config.json", "curves.png"):
+        assert os.path.exists(os.path.join(out, f)), f
+    evaluate.main(["--run_dir", out, "--data", data, "--splits", sp, "--split", "val"])
+    assert os.path.exists(os.path.join(out, "val_per_patient.csv")) and os.path.exists(os.path.join(out, "val_summary.json"))
+    print("  [OK] train -> best.pth -> full-volume evaluation works end to end")
     shutil.rmtree(tmpdir, ignore_errors=True)
     return True
 
@@ -494,47 +381,19 @@ def test_checkpoint():
 # TEST 11: Resume
 # ==============================================================================
 def test_resume():
-    """Test that training can resume from checkpoint."""
-    import torch
-    from src.train import save_checkpoint, load_checkpoint
-    from src.models.model import build_model
-
+    """Training resumes automatically from last.pth and continues the log from the saved step."""
+    import csv
+    from src import train
     tmpdir = tempfile.mkdtemp(prefix="test_resume_")
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-    model = build_model(encoder_channels=[4, 8, 16, 32, 64]).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=6e-4)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', patience=5)
-    scaler = torch.amp.GradScaler(device.type, enabled=False)
-
-    # Simulate 3 epochs
-    for ep in range(1, 4):
-        scheduler.step(0.5 + ep * 0.05)
-
-    # Save checkpoint
-    ckpt_path = os.path.join(tmpdir, "latest_checkpoint.pth")
-    state = {
-        'epoch': 3,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'scheduler_state_dict': scheduler.state_dict(),
-        'scaler_state_dict': scaler.state_dict(),
-        'best_val_dice': 0.65,
-    }
-    torch.save(state, ckpt_path)
-
-    # Resume into new objects
-    model2 = build_model(encoder_channels=[4, 8, 16, 32, 64]).to(device)
-    opt2 = torch.optim.Adam(model2.parameters(), lr=6e-4)
-    sched2 = torch.optim.lr_scheduler.ReduceLROnPlateau(opt2, mode='max', patience=5)
-    scaler2 = torch.amp.GradScaler(device.type, enabled=False)
-
-    start_epoch, best_dice = load_checkpoint(ckpt_path, model2, opt2, sched2, scaler2, device)
-
-    assert start_epoch == 3, f"Expected epoch 3, got {start_epoch}"
-    assert best_dice == 0.65, f"Expected dice 0.65, got {best_dice}"
-
-    print(f"  [OK] Resume: epoch={start_epoch}, best_dice={best_dice}")
+    data, sp = _synthetic_prep(tmpdir)
+    out = os.path.join(tmpdir, "run")
+    base = ["--run_name", "t11", "--out", out, "--data", data, "--splits", sp, "--patch", "--patch_size", "32", "32", "32",
+            "--val_every", "2", "--ckpt_every", "2", "--log_every", "1", "--workers", "0"]
+    train.main(base + ["--steps", "2"])
+    train.main(base + ["--steps", "4"])
+    steps = [int(r["step"]) for r in csv.DictReader(open(os.path.join(out, "train_log.csv")))]
+    assert steps == [1, 2, 3, 4], steps
+    print(f"  [OK] Resumed at step 2, log steps {steps}")
     shutil.rmtree(tmpdir, ignore_errors=True)
     return True
 
@@ -615,6 +474,130 @@ def test_crop_paste_roundtrip():
 
 
 # ==============================================================================
+# TEST 14: Metrics on toy masks with known answers (T3)
+# ==============================================================================
+def test_metrics_toy():
+    from src.metrics import compute_all_metrics, aggregate_metrics
+    gt = np.zeros((40, 40, 40), bool); gt[10:20, 10:20, 10:20] = True
+    m = compute_all_metrics(gt.copy(), gt, spacing=(1, 1, 1))
+    assert m["dice"] == 1 and m["jaccard"] == 1 and m["hd95"] == 0 and m["assd"] == 0 and m["v_ratio"] == 1
+    pred = np.zeros_like(gt); pred[12:22, 10:20, 10:20] = True          # shift 2 voxels along axis 0
+    m = compute_all_metrics(pred, gt, spacing=(2, 1, 1))                 # 2 mm along axis 0
+    assert abs(m["dice"] - 0.8) < 1e-12, m["dice"]                       # TP 800, FP 200, FN 200
+    assert abs(m["jaccard"] - 800 / 1200) < 1e-12 and abs(m["jaccard"] - m["dice"] / (2 - m["dice"])) < 1e-12
+    assert abs(m["precision"] - 0.8) < 1e-12 and abs(m["recall"] - 0.8) < 1e-12
+    assert abs(m["hd95"] - 4.0) < 1e-9, m["hd95"]                        # front face 2 voxels x 2 mm away
+    assert abs(m["vol_gt_ml"] - 2.0) < 1e-12 and abs(m["v_ratio"] - 1.0) < 1e-12   # 1000 voxels x 2 mm^3
+    big = np.zeros_like(gt); big[8:22, 8:22, 8:22] = True                # over-segmentation
+    mb = compute_all_metrics(big, gt, spacing=(1, 1, 1))
+    assert abs(mb["recall"] - 1) < 1e-12 and abs(mb["precision"] - 1000 / 2744) < 1e-12 and abs(mb["v_ratio"] - 2.744) < 1e-9
+    me = compute_all_metrics(np.zeros_like(gt), gt)
+    assert me["dice"] == 0 and np.isinf(me["hd95"]) and np.isinf(me["assd"]) and me["empty_pred"]
+    agg = aggregate_metrics([m, mb, me])
+    assert agg["n_cases"] == 3 and agg["n_empty_pred"] == 1 and agg["n_inf_hd95"] == 1 and agg["hd95"]["n"] == 2
+    assert abs(agg["dice"]["mean"] - (0.8 + mb["dice"] + 0) / 3) < 1e-12          # empty case kept in Dice
+    print(f"  [OK] shifted cube: Dice {m['dice']:.3f} J {m['jaccard']:.3f} HD95 {m['hd95']} mm ASSD {m['assd']:.3f} mm")
+    print(f"  [OK] empty prediction -> inf HD95/ASSD, counted (n_inf_hd95={agg['n_inf_hd95']}), Dice kept")
+    return True
+
+
+# ==============================================================================
+# TEST 15: Model flags (T4)
+# ==============================================================================
+def test_model_flags():
+    import torch
+    from src.models.model import build_model, count_parameters
+    assert count_parameters(build_model())["total"] == 5_668_269, "R0 must reproduce the Review-1 parameter count"
+    x = torch.randn(1, 1, 64, 64, 48)
+    for kw in [dict(), dict(norm="group"), dict(norm="group", deepsup=True),
+               dict(norm="group", deepsup=True, attention=False), dict(ag="paper")]:
+        m = build_model(**kw)
+        n = count_parameters(m)["total"]
+        assert 5.6e6 < n < 5.75e6, n
+        gns = [g for g in m.modules() if isinstance(g, torch.nn.GroupNorm)]
+        assert all(g.num_channels % g.num_groups == 0 for g in gns)
+        assert (len(gns) > 0) == (kw.get("norm") == "group")
+        m.train(); out = m(x)
+        if kw.get("deepsup"):
+            assert isinstance(out, list) and len(out) == 4 and all(o.shape == x.shape for o in out), "aux heads full size"
+        else:
+            assert out.shape == x.shape
+        m.eval()
+        with torch.no_grad():
+            assert m(x).shape == x.shape, "eval returns main head only"
+        print(f"  [OK] {kw or 'R0 defaults'}: {n:,} params, train/eval shapes OK")
+    return True
+
+
+# ==============================================================================
+# TEST 16: GPU augmentation (T4)
+# ==============================================================================
+def test_augmentation():
+    import torch
+    from src.augment import gpu_augment
+    torch.manual_seed(0)
+    x = torch.rand(2, 1, 32, 24, 16); y = (torch.rand(2, 1, 32, 24, 16) > 0.8).float()
+    xo, yo = gpu_augment(x, y, rot_deg=0, shift=0, flip_p=0)
+    assert torch.allclose(xo, x, atol=1e-5) and torch.equal(yo, y), "identity parameters must return the input"
+    xo, yo = gpu_augment(x, y, rot_deg=0, shift=0, flip_p=1.0)
+    assert torch.allclose(xo, torch.flip(x, (2, 3, 4)), atol=1e-5) and torch.equal(yo, torch.flip(y, (2, 3, 4)))
+    for _ in range(5):
+        xo, yo = gpu_augment(x, y)
+        assert set(torch.unique(yo).tolist()) <= {0.0, 1.0}, "label must stay binary"
+        assert xo.min() >= 0 and xo.max() <= 1, "image must stay in [0, 1]"
+    print("  [OK] identity, forced flip == torch.flip, binary label, image in [0,1]")
+    return True
+
+
+# ==============================================================================
+# TEST 17: One optimizer step on one patch lowers the loss (T4, R3 config)
+# ==============================================================================
+def test_one_step_overfit():
+    import torch
+    from src.models.model import build_model
+    from src.losses import DeepSupervisionLoss, DiceFocalLoss
+    torch.manual_seed(0)
+    x = torch.rand(2, 1, 32, 32, 32); y = torch.zeros_like(x); y[..., 8:24, 8:24, 8:24] = 1
+    m = build_model(norm="group", deepsup=True); crit = DeepSupervisionLoss(DiceFocalLoss())
+    opt = torch.optim.Adam(m.parameters(), lr=6e-4); m.train()
+    l0 = crit(m(x), y); opt.zero_grad(); l0.backward(); opt.step()
+    with torch.no_grad():
+        l1 = crit(m(x), y)
+    print(f"  loss {l0.item():.5f} -> {l1.item():.5f}")
+    return l1.item() < l0.item()
+
+
+# ==============================================================================
+# TEST 18: Patch sampler pos:neg = 1:2 and R0 paste-back inference (T3/T4)
+# ==============================================================================
+def test_sampler_and_pasteback():
+    import torch
+    from src.data.dataset import PatchSampler
+    from src.data.preprocessing import blind_center_crop
+    from src.inference import predict_logits, BG_LOGIT
+    tmpdir = tempfile.mkdtemp(prefix="test_samp_")
+    data, _ = _synthetic_prep(tmpdir, n=1, shape=(96, 96, 64))
+    ds = PatchSampler(data, ["PANCREAS_9000"], 600, size=(16, 16, 16))
+    fg = np.mean([ds[i][1][0, 8, 8, 8].item() for i in range(600)])      # centre voxel is foreground for pos picks
+    assert 0.25 < fg < 0.42, fg
+    print(f"  [OK] patch centred on foreground in {fg:.2f} of samples (expected ~1/3)")
+
+    class Const(torch.nn.Module):
+        def forward(self, t):
+            return torch.full_like(t, 3.0)
+    for shape in [(300, 280, 200), (200, 230, 100)]:
+        img = np.random.rand(*shape).astype(np.float32)
+        out = predict_logits(Const(), img, mode="crop", device="cpu", amp=False).numpy()
+        off = blind_center_crop(shape, (224, 224, 128))
+        inside = tuple(slice(max(o, 0), min(o + t, s)) for o, t, s in zip(off, (224, 224, 128), shape))
+        mask = np.zeros(shape, bool); mask[inside] = True
+        assert out.shape == shape and (out[mask] == 3.0).all() and (out[~mask] == BG_LOGIT).all()
+    print("  [OK] R0 crop prediction pasted back; outside the crop = background")
+    shutil.rmtree(tmpdir, ignore_errors=True)
+    return True
+
+
+# ==============================================================================
 # MAIN
 # ==============================================================================
 def main():
@@ -636,6 +619,11 @@ def main():
         ("11. Resume", test_resume),
         ("12. Evaluation Metrics", test_evaluation_metrics),
         ("13. Crop/Paste Round Trip", test_crop_paste_roundtrip),
+        ("14. Metrics Toy Masks", test_metrics_toy),
+        ("15. Model Flags", test_model_flags),
+        ("16. GPU Augmentation", test_augmentation),
+        ("17. One-Step Overfit (R3)", test_one_step_overfit),
+        ("18. Sampler + R0 Paste-Back", test_sampler_and_pasteback),
     ]
 
     for name, fn in tests:

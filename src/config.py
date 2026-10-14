@@ -52,11 +52,10 @@ OUT_CHANNELS = 1  # Binary segmentation (pancreas vs background)
 # Paper Section 2.3: "Dice + Focal Loss"
 # L_total = L_Dice + L_Focal
 
-# IMPLEMENTATION ASSUMPTION (Focal loss parameters):
-#   Paper does NOT numerically specify gamma or alpha for Focal Loss.
-#   Standard default from Lin et al. (2017) is used: gamma = 2.0, alpha = 0.25.
+# Focal loss (decision D1): paper Eq. 2 is a gamma-modulated cross-entropy with NO alpha term and gamma unspecified.
+#   gamma = 2.0 (Lin et al. 2017 default), alpha = None. Same loss for every run R0-R4.
 FOCAL_GAMMA = 2.0
-FOCAL_ALPHA = 0.25
+FOCAL_ALPHA = None  # D1: paper Eq. 2 has no alpha term; Review-1 used 0.25 (--focal_alpha 0.25)
 
 # PAPER AMBIGUITY — Dice loss formula:
 #   Paper Eq.(3) omits factor of 2 in numerator.
@@ -106,6 +105,14 @@ USE_AMP = True
 
 # Random seed for reproducibility
 SEED = 42
+
+# Patch training + sliding-window inference (M1, runs R1-R4); same ROI in training and inference
+PATCH_SIZE = (128, 128, 96)
+PATCH_BATCH = 2
+POS_NEG = (1, 2)            # MONAI RandCropByPosNegLabeld pos:neg -> ~1/3 of patches centred on foreground
+SW_BATCH = 4
+SW_OVERLAP_TEST = 0.5       # final test evaluation
+SW_OVERLAP_VAL = 0.25       # validation during training (speed; identical for every run)
 
 # ==============================================================================
 # DATA SPLITTING (Section 2.4)

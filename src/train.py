@@ -1,422 +1,183 @@
 """
-train.py - 3D Training Loop for Attention U-Net Pancreas Segmentation.
+train.py - Step-based trainer for R0-R4 (one process per GPU; no DDP).
 
-Implements:
-  - Adam optimizer with LR = 6e-4 (paper Section 2.3)
-  - ReduceLROnPlateau scheduler (paper: patience = 100)
-  - Dice + Focal loss (paper Section 2.3)
-  - AMP mixed precision for T4 GPU efficiency
-  - Checkpoint/resume for Colab session recovery
-  - Volume-level validation Dice
-  - Per-epoch metrics logging
+Defaults reproduce R0 (paper-faithful): BatchNorm, blind-centre 224x224x128 crop, batch 1, Dice+Focal (gamma 2,
+no alpha), Adam 6e-4 wd 0, AMP, simple attention gate. Flags add M1 (--patch), M2 (--norm group), M3 (--deepsup).
+Validation every K steps on the FULL 1 mm volume of the fold's validation patients (D8); ReduceLROnPlateau on
+val Dice (D3, --sched_metric loss for the paper's choice) with patience = 1/3 of the number of validation checks.
+best.pth = best val Dice; last.pth every --ckpt_every steps -> automatic resume. Test patients are never loaded.
 
-Reference:
-  "Deep Learning Model with Attention Mechanism for a 3D Pancreas Segmentation in CT Scans"
-  Mathematics 2025, 13, 3942
+  python -m src.train --run_name R0_baseline --data /tmp/prep --steps N --val_every K --out results/R0_baseline
 """
+import argparse, csv, json, math, os, platform, subprocess, time
 
-import os
-import argparse
-import csv
-import json
-from datetime import datetime
-
+import numpy as np
 import torch
-import torch.optim as optim
-from tqdm import tqdm
+from torch.utils.data import DataLoader
 
-from src.config import (
-    LEARNING_RATE, WEIGHT_DECAY, SCHEDULER_PATIENCE, SCHEDULER_FACTOR,
-    SCHEDULER_MIN_LR, DEFAULT_EPOCHS, BATCH_SIZE, USE_AMP, SEED,
-    ENCODER_CHANNELS, IN_CHANNELS, OUT_CHANNELS, EVAL_THRESHOLD,
-    FOCAL_GAMMA, FOCAL_ALPHA, DICE_SMOOTH,
-    DEFAULT_DATA_DIR, DEFAULT_CHECKPOINT_DIR,
-)
+from src.augment import gpu_augment
+from src.config import (CROP_SIZE, FOCAL_GAMMA, LEARNING_RATE, PATCH_BATCH, PATCH_SIZE, POS_NEG, SCHEDULER_FACTOR,
+                        SCHEDULER_MIN_LR, SEED, SW_OVERLAP_VAL, WEIGHT_DECAY, EVAL_THRESHOLD)
+from src.data.dataset import CropSampler, PatchSampler, load_case
+from src.inference import predict_logits
+from src.losses import DeepSupervisionLoss, DiceFocalLoss
 from src.models.model import build_model, count_parameters
-from src.losses import DiceFocalLoss, DiceBCELoss, DiceLoss
-from src.data.dataset import create_simple_dataloaders, create_fold_dataloaders
 from src.utils import set_seed
 
+LOG_COLS = ["step", "train_loss", "val_dice", "val_loss", "lr", "seconds", "peak_vram_gb"]
 
-def train_one_epoch(model, dataloader, criterion, optimizer, scaler, device):
-    """Train for one epoch. Returns average training loss."""
-    model.train()
-    running_loss = 0.0
-    n_samples = 0
 
-    pbar = tqdm(dataloader, desc="Training", leave=False)
-    for images, labels in pbar:
-        images = images.to(device, non_blocking=True)
-        labels = labels.to(device, non_blocking=True)
+def get_args(argv=None):
+    p = argparse.ArgumentParser()
+    p.add_argument("--run_name", required=True); p.add_argument("--out", required=True)
+    p.add_argument("--data", required=True); p.add_argument("--splits", default="splits/patient_splits.json")
+    p.add_argument("--fold", type=int, default=0)
+    p.add_argument("--norm", choices=["batch", "group"], default="batch")
+    p.add_argument("--patch", action="store_true")
+    p.add_argument("--patch_size", type=int, nargs=3, default=list(PATCH_SIZE))
+    p.add_argument("--batch_size", type=int, default=None, help="default 1 (R0) / 2 (--patch)")
+    p.add_argument("--pos_neg", type=int, nargs=2, default=list(POS_NEG))
+    p.add_argument("--deepsup", action="store_true"); p.add_argument("--no_attention", action="store_true")
+    p.add_argument("--ag", choices=["simple", "paper"], default="simple")
+    p.add_argument("--focal_alpha", type=float, default=None); p.add_argument("--focal_gamma", type=float, default=FOCAL_GAMMA)
+    p.add_argument("--sched_metric", choices=["dice", "loss"], default="dice")
+    p.add_argument("--steps", type=int, required=True); p.add_argument("--val_every", type=int, required=True)
+    p.add_argument("--ckpt_every", type=int, default=300); p.add_argument("--log_every", type=int, default=25)
+    p.add_argument("--val_overlap", type=float, default=SW_OVERLAP_VAL)
+    p.add_argument("--val_max_cases", type=int, default=0, help="0 = all validation patients")
+    p.add_argument("--lr", type=float, default=LEARNING_RATE); p.add_argument("--seed", type=int, default=SEED)
+    p.add_argument("--workers", type=int, default=2); p.add_argument("--no_amp", action="store_true")
+    a = p.parse_args(argv)
+    a.batch_size = a.batch_size or (PATCH_BATCH if a.patch else 1)
+    return a
 
-        optimizer.zero_grad(set_to_none=True)
 
-        with torch.amp.autocast(device_type=device.type, enabled=USE_AMP):
-            outputs = model(images)
-            loss = criterion(outputs, labels)
+def model_config(a):
+    """Everything evaluate.py / tta.py need to rebuild the model and its inference mode."""
+    return dict(norm=a.norm, deepsup=a.deepsup, attention=not a.no_attention, ag=a.ag,
+                mode="patch" if a.patch else "crop", roi=list(a.patch_size), crop=list(CROP_SIZE))
 
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
 
-        batch_size = images.size(0)
-        running_loss += loss.item() * batch_size
-        n_samples += batch_size
-        pbar.set_postfix({"loss": f"{loss.item():.4f}"})
-
-    return running_loss / max(n_samples, 1)
+def git_hash():
+    try:
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL,
+                                       cwd=os.path.dirname(os.path.abspath(__file__))).decode().strip()
+    except Exception:
+        return "unknown"
 
 
 @torch.no_grad()
-def validate(model, dataloader, criterion, device):
-    """Validate and compute volume-level Dice. Returns avg loss, avg Dice."""
+def validate(model, data, ids, cfg, crit, device, overlap, amp):
+    """Mean Dice (threshold 0.5) and mean Dice+Focal loss over full validation volumes."""
     model.eval()
-    running_loss = 0.0
-    dice_scores = []
-    n_samples = 0
-
-    for images, labels in tqdm(dataloader, desc="Validation", leave=False):
-        images = images.to(device, non_blocking=True)
-        labels = labels.to(device, non_blocking=True)
-
-        with torch.amp.autocast(device_type=device.type, enabled=USE_AMP):
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-
-        running_loss += loss.item() * images.size(0)
-        n_samples += images.size(0)
-
-        # Volume-level Dice
-        preds = torch.sigmoid(outputs)
-        preds_bin = (preds > EVAL_THRESHOLD).float()
-
-        for p, l in zip(preds_bin, labels):
-            intersection = (p * l).sum()
-            total = p.sum() + l.sum()
-            if total == 0:
-                dice_scores.append(1.0)
-            else:
-                dice_scores.append((2.0 * intersection / total).item())
-
-    val_loss = running_loss / max(n_samples, 1)
-    val_dice = sum(dice_scores) / len(dice_scores) if dice_scores else 0.0
-    return val_loss, val_dice
+    dices, losses = [], []
+    for pid in ids:
+        img, lbl = load_case(data, pid)
+        logits = predict_logits(model, img, cfg["mode"], cfg["roi"], overlap, cfg["crop"], device, amp)
+        y = torch.from_numpy(np.array(lbl, dtype=np.float32)).to(device)
+        p = logits > 0          # sigmoid > 0.5
+        inter, tot = (p & (y > 0)).sum().item(), p.sum().item() + y.sum().item()
+        dices.append(1.0 if tot == 0 else 2 * inter / tot)
+        losses.append(crit(logits[None, None], y[None, None]).item())
+    model.train()
+    return float(np.mean(dices)), float(np.mean(losses))
 
 
-def save_checkpoint(state: dict, filepath: str, drive_path: str = None):
-    """Save checkpoint locally and optionally to Google Drive."""
-    os.makedirs(os.path.dirname(filepath) or '.', exist_ok=True)
-    torch.save(state, filepath)
+def main(argv=None):
+    a = get_args(argv)
+    os.makedirs(a.out, exist_ok=True)
+    set_seed(a.seed)
+    torch.backends.cudnn.deterministic, torch.backends.cudnn.benchmark = False, True
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    amp = not a.no_amp and device == "cuda"
+    split = json.load(open(a.splits))
+    fold = split["folds"][a.fold]
+    train_ids, val_ids = fold["train"], fold["val"][:a.val_max_cases or None]
+    assert not set(train_ids + val_ids) & set(split["test"]), "test patients must never be used in training"
 
-    if drive_path:
-        os.makedirs(os.path.dirname(drive_path) or '.', exist_ok=True)
-        torch.save(state, drive_path)
+    cfg = model_config(a)
+    model = build_model(**cfg).to(device)
+    crit_main = DiceFocalLoss(focal_gamma=a.focal_gamma, focal_alpha=a.focal_alpha)
+    crit = DeepSupervisionLoss(crit_main).to(device)
+    opt = torch.optim.Adam(model.parameters(), lr=a.lr, weight_decay=WEIGHT_DECAY)
+    n_checks = math.ceil(a.steps / a.val_every)
+    patience = max(1, n_checks // 3)
+    sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode="max" if a.sched_metric == "dice" else "min",
+                                                       factor=SCHEDULER_FACTOR, patience=patience, min_lr=SCHEDULER_MIN_LR)
+    scaler = torch.amp.GradScaler("cuda", enabled=amp)
 
-
-def load_checkpoint(filepath: str, model, optimizer, scheduler, scaler, device):
-    """
-    Load checkpoint and restore training state.
-    Returns the epoch to resume from and best validation Dice.
-    """
-    if not os.path.exists(filepath):
-        return 0, 0.0
-
-    print(f"[Resume] Loading checkpoint: {filepath}")
-    checkpoint = torch.load(filepath, map_location=device, weights_only=False)
-
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-
-    if 'scheduler_state_dict' in checkpoint and scheduler is not None:
-        scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-
-    if 'scaler_state_dict' in checkpoint and scaler is not None:
-        scaler.load_state_dict(checkpoint['scaler_state_dict'])
-
-    start_epoch = checkpoint.get('epoch', 0)
-    best_dice = checkpoint.get('best_val_dice', 0.0)
-
-    print(f"[Resume] Resuming from epoch {start_epoch + 1}, best Dice: {best_dice:.4f}")
-    return start_epoch, best_dice
-
-
-def train(data_dir: str, checkpoint_dir: str, drive_checkpoint_dir: str = None,
-          fold: int = None, train_indices: list = None, val_indices: list = None,
-          epochs: int = DEFAULT_EPOCHS, batch_size: int = BATCH_SIZE,
-          lr: float = LEARNING_RATE, resume: bool = True,
-          num_workers: int = 2, preprocessed: bool = True,
-          loss: str = 'dicefocal', focal_gamma: float = None,
-          focal_alpha: float = None):
-    """
-    Main training function.
-
-    Args:
-        data_dir: directory with preprocessed images/ and labels/
-        checkpoint_dir: local checkpoint directory
-        drive_checkpoint_dir: Google Drive checkpoint directory (optional)
-        fold: cross-validation fold number (for naming)
-        train_indices: patient indices for training (if using CV)
-        val_indices: patient indices for validation (if using CV)
-        epochs: total number of epochs
-        batch_size: batch size (default 1)
-        lr: learning rate
-        resume: whether to resume from checkpoint
-        num_workers: DataLoader workers
-        preprocessed: whether volumes are already preprocessed
-
-    Returns:
-        dict with training results (best_dice, train_losses, val_losses, etc.)
-    """
-    set_seed(SEED)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    if torch.cuda.is_available():
-        print(f"[GPU] {torch.cuda.get_device_name(0)}")
-        print(f"[GPU] VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+    step, best, t_prev = 0, -1.0, 0.0
+    last, log_path = os.path.join(a.out, "last.pth"), os.path.join(a.out, "train_log.csv")
+    if os.path.exists(last):                                          # automatic resume
+        ck = torch.load(last, map_location=device, weights_only=False)
+        model.load_state_dict(ck["model"]); opt.load_state_dict(ck["opt"]); sched.load_state_dict(ck["sched"])
+        scaler.load_state_dict(ck["scaler"]); torch.set_rng_state(ck["rng_cpu"].cpu())
+        if device == "cuda" and ck.get("rng_cuda") is not None:
+            torch.cuda.set_rng_state(ck["rng_cuda"].cpu())
+        step, best, t_prev = ck["step"], ck["best"], ck["seconds"]
+        rows = [r for r in csv.DictReader(open(log_path))] if os.path.exists(log_path) else []
+        rows = [r for r in rows if int(r["step"]) <= step]
+        print(f"[resume] step {step}, best val Dice {best:.4f}", flush=True)
     else:
-        print("[CPU] No GPU available — training will be slow")
+        rows = []
+    with open(log_path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=LOG_COLS); w.writeheader(); w.writerows(rows)
 
-    # Create checkpoint directory
-    fold_str = f"fold_{fold}" if fold is not None else "single"
-    ckpt_dir = os.path.join(checkpoint_dir, fold_str)
-    os.makedirs(ckpt_dir, exist_ok=True)
+    config = dict(vars(a), **cfg, params=count_parameters(model)["total"], git=git_hash(), n_train=len(train_ids),
+                  val_ids=val_ids, train_ids=train_ids, patience_checks=patience, n_val_checks=n_checks, amp=amp,
+                  focal_alpha=a.focal_alpha, threshold=EVAL_THRESHOLD, torch=torch.__version__,
+                  gpu=torch.cuda.get_device_name(0) if device == "cuda" else platform.processor())
+    json.dump(config, open(os.path.join(a.out, "config.json"), "w"), indent=1)
+    print(f"[{a.run_name}] {config['params']:,} params | {cfg} | batch {a.batch_size} | steps {a.steps} | "
+          f"val every {a.val_every} on {len(val_ids)} cases | patience {patience} checks | {config['gpu']}", flush=True)
 
-    drive_ckpt_dir = None
-    if drive_checkpoint_dir:
-        drive_ckpt_dir = os.path.join(drive_checkpoint_dir, fold_str)
-        os.makedirs(drive_ckpt_dir, exist_ok=True)
+    Sampler = PatchSampler if a.patch else CropSampler
+    kw = dict(size=a.patch_size, pos_neg=a.pos_neg) if a.patch else {}
+    ds = Sampler(a.data, train_ids, a.steps * a.batch_size, seed=a.seed, start=step * a.batch_size, **kw)
+    dl = DataLoader(ds, batch_size=a.batch_size, shuffle=False, num_workers=a.workers, pin_memory=device == "cuda",
+                    persistent_workers=a.workers > 0, prefetch_factor=4 if a.workers else None)
+    model.train()
+    if device == "cuda":
+        torch.cuda.reset_peak_memory_stats()
+    t0, run_loss, n_loss = time.time() - t_prev, 0.0, 0
 
-    # Create DataLoaders
-    print("\n[Data] Loading dataset...")
-    if train_indices is not None and val_indices is not None:
-        train_loader, val_loader = create_fold_dataloaders(
-            data_dir, train_indices, val_indices,
-            batch_size=batch_size, num_workers=num_workers,
-            preprocessed=preprocessed
-        )
-    else:
-        train_loader, val_loader = create_simple_dataloaders(
-            data_dir, batch_size=batch_size,
-            num_workers=num_workers, preprocessed=preprocessed
-        )
+    def save_last():
+        torch.save(dict(model=model.state_dict(), opt=opt.state_dict(), sched=sched.state_dict(),
+                        scaler=scaler.state_dict(), step=step, best=best, seconds=time.time() - t0,
+                        rng_cpu=torch.get_rng_state(),
+                        rng_cuda=torch.cuda.get_rng_state() if device == "cuda" else None), last + ".tmp")
+        os.replace(last + ".tmp", last)
 
-    # Build model
-    print("\n[Model] Building 3D Attention U-Net...")
-    model = build_model(IN_CHANNELS, OUT_CHANNELS, ENCODER_CHANNELS)
-    model = model.to(device)
-
-    params = count_parameters(model)
-    print(f"  Parameters: {params['total']:,} ({params['total_MB']:.1f} MB)")
-
-    # Loss, optimizer, scheduler
-    if loss == 'dice':
-        criterion = DiceLoss(smooth=DICE_SMOOTH)
-    elif loss == 'dicebce':
-        criterion = DiceBCELoss(smooth=DICE_SMOOTH, bce_weight=0.5)
-    elif loss == 'dicefocal':
-        gamma = FOCAL_GAMMA if focal_gamma is None else focal_gamma
-        alpha = FOCAL_ALPHA if focal_alpha is None else focal_alpha
-        criterion = DiceFocalLoss(
-            dice_smooth=DICE_SMOOTH,
-            focal_gamma=gamma,
-            focal_alpha=alpha,
-        )
-    else:
-        raise ValueError(f"Unknown loss: {loss}")
-
-    # Paper: Adam optimizer, LR = 6e-4 (see config.py for ambiguity note)
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=WEIGHT_DECAY)
-
-    # Paper: ReduceLROnPlateau with patience = 100
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='max', factor=SCHEDULER_FACTOR,
-        patience=SCHEDULER_PATIENCE, min_lr=SCHEDULER_MIN_LR
-    )
-
-    # AMP Scaler
-    scaler = torch.amp.GradScaler(device.type, enabled=USE_AMP and device.type == 'cuda')
-
-    # Resume from checkpoint
-    start_epoch = 0
-    best_val_dice = 0.0
-    resume_path = os.path.join(ckpt_dir, "latest_checkpoint.pth")
-
-    if resume:
-        # Try drive checkpoint first, then local
-        if drive_ckpt_dir and os.path.exists(os.path.join(drive_ckpt_dir, "latest_checkpoint.pth")):
-            resume_path = os.path.join(drive_ckpt_dir, "latest_checkpoint.pth")
-
-        start_epoch, best_val_dice = load_checkpoint(
-            resume_path, model, optimizer, scheduler, scaler, device
-        )
-
-    # Training history
-    train_losses = []
-    val_losses = []
-    val_dices = []
-
-    # Load existing history if resuming
-    history_path = os.path.join(ckpt_dir, "training_log.csv")
-    if resume and os.path.exists(history_path):
-        with open(history_path, 'r') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                train_losses.append(float(row['train_loss']))
-                val_losses.append(float(row['val_loss']))
-                val_dices.append(float(row['val_dice']))
-
-    # Training loop
-    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    print(f"\n{'='*60}")
-    print(f"TRAINING START — {fold_str}")
-    print(f"  Epochs: {start_epoch + 1} → {epochs}")
-    print(f"  LR: {lr} (Paper: 6e-4, see config.py ambiguity note)")
-    print(f"  Batch size: {batch_size}")
-    print(f"  AMP: {USE_AMP}")
-    print(f"  Loss: {loss}")
-    print(f"  Scheduler: ReduceLROnPlateau (patience={SCHEDULER_PATIENCE})")
-    print(f"{'='*60}\n")
-
-    for epoch in range(start_epoch + 1, epochs + 1):
-        current_lr = optimizer.param_groups[0]['lr']
-        print(f"Epoch [{epoch:03d}/{epochs:03d}] | LR: {current_lr:.2e}")
-
-        train_loss = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device)
-        val_loss, val_dice = validate(model, val_loader, criterion, device)
-
-        train_losses.append(train_loss)
-        val_losses.append(val_loss)
-        val_dices.append(val_dice)
-
-        # Update scheduler (using val Dice as metric)
-        scheduler.step(val_dice)
-
-        print(f"  Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
-              f"Val Dice: {val_dice:.4f} | Best: {best_val_dice:.4f}")
-
-        # Save latest checkpoint (for resume)
-        latest_state = {
-            'epoch': epoch,
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'scheduler_state_dict': scheduler.state_dict(),
-            'scaler_state_dict': scaler.state_dict(),
-            'best_val_dice': best_val_dice,
-            'train_loss': train_loss,
-            'val_loss': val_loss,
-            'val_dice': val_dice,
-            'timestamp': run_timestamp,
-            'fold': fold,
-        }
-
-        save_checkpoint(
-            latest_state,
-            os.path.join(ckpt_dir, "latest_checkpoint.pth"),
-            os.path.join(drive_ckpt_dir, "latest_checkpoint.pth") if drive_ckpt_dir else None
-        )
-
-        # Save best model
-        if val_dice > best_val_dice:
-            best_val_dice = val_dice
-            latest_state['best_val_dice'] = best_val_dice
-
-            save_checkpoint(
-                latest_state,
-                os.path.join(ckpt_dir, "best_model.pth"),
-                os.path.join(drive_ckpt_dir, "best_model.pth") if drive_ckpt_dir else None
-            )
-            print(f"  → New best model saved! (Dice: {val_dice:.4f})")
-
-        # Save training log
-        with open(history_path, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['epoch', 'train_loss', 'val_loss', 'val_dice', 'lr'])
-            for ep, tl, vl, vd in zip(range(1, len(train_losses) + 1),
-                                       train_losses, val_losses, val_dices):
-                writer.writerow([ep, f"{tl:.6f}", f"{vl:.6f}", f"{vd:.6f}", f"{current_lr:.2e}"])
-
-        # Copy log to Drive
-        if drive_ckpt_dir:
-            drive_history = os.path.join(drive_ckpt_dir, "training_log.csv")
-            with open(drive_history, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(['epoch', 'train_loss', 'val_loss', 'val_dice', 'lr'])
-                for ep, tl, vl, vd in zip(range(1, len(train_losses) + 1),
-                                           train_losses, val_losses, val_dices):
-                    writer.writerow([ep, f"{tl:.6f}", f"{vl:.6f}", f"{vd:.6f}", f"{current_lr:.2e}"])
-
-    # Generate plots
-    from src.utils import plot_metrics
-    plots_dir = os.path.join(ckpt_dir, "plots")
-    plot_metrics(train_losses, val_losses, val_dices, save_dir=plots_dir)
-    if drive_ckpt_dir:
-        plot_metrics(train_losses, val_losses, val_dices,
-                     save_dir=os.path.join(drive_ckpt_dir, "plots"))
-
-    print(f"\n{'='*60}")
-    print(f"TRAINING COMPLETE — {fold_str}")
-    print(f"  Best Validation Dice: {best_val_dice:.4f}")
-    print(f"  Checkpoints: {ckpt_dir}")
-    if drive_ckpt_dir:
-        print(f"  Drive backup: {drive_ckpt_dir}")
-    print(f"{'='*60}")
-
-    return {
-        'best_val_dice': best_val_dice,
-        'train_losses': train_losses,
-        'val_losses': val_losses,
-        'val_dices': val_dices,
-        'fold': fold,
-    }
-
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Train 3D Attention U-Net for Pancreas Segmentation"
-    )
-    parser.add_argument("--data_dir", type=str, default=DEFAULT_DATA_DIR,
-                        help="Directory with preprocessed images/ and labels/")
-    parser.add_argument("--checkpoint_dir", type=str, default=DEFAULT_CHECKPOINT_DIR,
-                        help="Local checkpoint directory")
-    parser.add_argument("--drive_checkpoint_dir", type=str, default=None,
-                        help="Google Drive checkpoint directory")
-    parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS,
-                        help=f"Total training epochs (default: {DEFAULT_EPOCHS})")
-    parser.add_argument("--batch_size", type=int, default=BATCH_SIZE,
-                        help=f"Batch size (default: {BATCH_SIZE})")
-    parser.add_argument("--lr", type=float, default=LEARNING_RATE,
-                        help=f"Learning rate (default: {LEARNING_RATE})")
-    parser.add_argument("--no_resume", action="store_true",
-                        help="Start training from scratch (don't resume)")
-    parser.add_argument("--num_workers", type=int, default=2,
-                        help="DataLoader workers")
-    parser.add_argument("--fold", type=int, default=None,
-                        help="Cross-validation fold number")
-    parser.add_argument("--seed", type=int, default=SEED,
-                        help=f"Random seed (default: {SEED})")
-    parser.add_argument("--loss", type=str, default='dicefocal',
-                        choices=['dicefocal', 'dicebce', 'dice'],
-                        help="Loss function (default: dicefocal)")
-    parser.add_argument("--focal_gamma", type=float, default=None,
-                        help="Focal gamma override (dicefocal only)")
-    parser.add_argument("--focal_alpha", type=float, default=None,
-                        help="Focal alpha override (dicefocal only)")
-    args = parser.parse_args()
-
-    train(
-        data_dir=args.data_dir,
-        checkpoint_dir=args.checkpoint_dir,
-        drive_checkpoint_dir=args.drive_checkpoint_dir,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        lr=args.lr,
-        resume=not args.no_resume,
-        num_workers=args.num_workers,
-        fold=args.fold,
-        loss=args.loss,
-        focal_gamma=args.focal_gamma,
-        focal_alpha=args.focal_alpha,
-    )
+    for x, y in dl:
+        x, y = x.to(device, non_blocking=True), y.to(device, non_blocking=True)
+        x, y = gpu_augment(x, y)
+        with torch.autocast(device, enabled=amp):
+            out = model(x)
+        loss = crit(out, y)
+        opt.zero_grad(set_to_none=True)
+        scaler.scale(loss).backward(); scaler.step(opt); scaler.update()
+        step += 1; run_loss += loss.item(); n_loss += 1
+        row = None
+        if step % a.val_every == 0 or step == a.steps:
+            vd, vl = validate(model, a.data, val_ids, cfg, crit_main, device, a.val_overlap, amp)
+            sched.step(vd if a.sched_metric == "dice" else vl)
+            if vd > best:
+                best = vd
+                torch.save(dict(model=model.state_dict(), step=step, val_dice=vd, config=cfg), os.path.join(a.out, "best.pth"))
+            row = dict(val_dice=f"{vd:.5f}", val_loss=f"{vl:.5f}")
+        if row is not None or step % a.log_every == 0:
+            row = dict(row or {}, step=step, train_loss=f"{run_loss / max(n_loss, 1):.5f}",
+                       lr=f"{opt.param_groups[0]['lr']:.3e}", seconds=f"{time.time() - t0:.1f}",
+                       peak_vram_gb=f"{torch.cuda.max_memory_allocated() / 1e9:.2f}" if device == "cuda" else "")
+            with open(log_path, "a", newline="") as f:
+                csv.DictWriter(f, fieldnames=LOG_COLS).writerow(row)
+            print(" ".join(f"{k}={v}" for k, v in row.items()), flush=True)
+            run_loss, n_loss = 0.0, 0
+        if step % a.ckpt_every == 0 or step == a.steps:
+            save_last()
+    print(f"[{a.run_name}] done: {step} steps, best val Dice {best:.4f}, {time.time() - t0:.0f} s", flush=True)
+    from src.utils import plot_train_log
+    plot_train_log(log_path, os.path.join(a.out, "curves.png"), a.run_name)
 
 
 if __name__ == "__main__":

@@ -1,169 +1,89 @@
 """
-model.py - 3D Attention U-Net for Pancreas Segmentation.
+model.py - 3D Attention U-Net (paper Fig. 1: channels 16-32-64-128-256) with ablation flags.
 
-Implements the paper's architecture (Section 2.1, Figure 1):
-  - 5-level 3D U-Net encoder with channels [16, 32, 64, 128, 256]
-  - Attention Gates at every skip connection
-  - 3x3x3 convolutions, BatchNorm3d, ReLU
-  - MaxPool3d(2) downsampling, ConvTranspose3d(2) upsampling
-  - 1x1x1 final convolution for binary segmentation
-
-PAPER AMBIGUITY #1 -- Channel Count:
-  Text: "starting from 2 to 16" -- inconsistent with any viable architecture.
-  Figure 1: clearly shows 16 -> 32 -> 64 -> 128 -> 256.
-  RESOLUTION: Follow Figure 1.
-
-Reference:
-  "Deep Learning Model with Attention Mechanism for a 3D Pancreas Segmentation in CT Scans"
-  Mathematics 2025, 13, 3942
+Flags (defaults = R0, the paper-faithful baseline; reproduces Review-1's 5,668,269 parameters exactly):
+  norm      "batch" (BatchNorm3d, R0/R1) | "group" (GroupNorm(8, C), R2+; every C is divisible by 8)
+  deepsup   3 auxiliary 1x1x1 heads on decoder outputs at 1/8, 1/4, 1/2 resolution, trilinear-upsampled to
+            the input size. Train mode returns [main, aux_1/2, aux_1/4, aux_1/8]; eval mode returns main only.
+  attention False -> skip connections pass through unchanged (plain 3D U-Net, R4)
+  ag        "simple" (Review-1 gate, used in the ablation) | "paper" (Sec. 3.2.3 gate, optional, D2)
 """
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from src.models.attention import AttentionGate3D
 from src.config import ENCODER_CHANNELS, IN_CHANNELS, OUT_CHANNELS
+from src.models.attention import AttentionGate3D, PaperAttentionGate3D
+
+
+def norm_layer(c: int, norm: str) -> nn.Module:
+    return nn.GroupNorm(8, c) if norm == "group" else nn.BatchNorm3d(c)
 
 
 class DoubleConv3D(nn.Module):
-    """
-    Double 3D Convolution Block:
-        Conv3d(3x3x3) -> BatchNorm3d -> ReLU -> Conv3d(3x3x3) -> BatchNorm3d -> ReLU
-    """
+    """(Conv3d 3x3x3, bias=False -> Norm -> ReLU) x 2."""
 
-    def __init__(self, in_channels: int, out_channels: int):
+    def __init__(self, i: int, o: int, norm: str = "batch"):
         super().__init__()
         self.double_conv = nn.Sequential(
-            nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm3d(out_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv3d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm3d(out_channels),
-            nn.ReLU(inplace=True),
-        )
+            nn.Conv3d(i, o, 3, padding=1, bias=False), norm_layer(o, norm), nn.ReLU(inplace=True),
+            nn.Conv3d(o, o, 3, padding=1, bias=False), norm_layer(o, norm), nn.ReLU(inplace=True))
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x):
         return self.double_conv(x)
 
 
-class Encoder3D(nn.Module):
-    """
-    3D U-Net Encoder -- 5 resolution levels with MaxPool3d downsampling.
-    """
-
-    def __init__(self, in_channels: int = IN_CHANNELS, channels: list = None):
-        super().__init__()
-        if channels is None:
-            channels = ENCODER_CHANNELS
-
-        self.levels = nn.ModuleList()
-        self.pool = nn.MaxPool3d(kernel_size=2, stride=2)
-
-        prev_ch = in_channels
-        for ch in channels:
-            self.levels.append(DoubleConv3D(prev_ch, ch))
-            prev_ch = ch
-
-    def forward(self, x: torch.Tensor):
-        features = []
-        for i, level in enumerate(self.levels):
-            x = level(x)
-            if i < len(self.levels) - 1:
-                features.append(x)
-                x = self.pool(x)
-        return features, x
-
-
-class Decoder3D(nn.Module):
-    """
-    3D U-Net Decoder with Attention Gates at skip connections.
-    """
-
-    def __init__(self, channels: list = None):
-        super().__init__()
-        if channels is None:
-            channels = ENCODER_CHANNELS
-
-        self.up_convs = nn.ModuleList()
-        self.attention_gates = nn.ModuleList()
-        self.double_convs = nn.ModuleList()
-
-        reversed_channels = list(reversed(channels))
-
-        for i in range(len(reversed_channels) - 1):
-            in_ch = reversed_channels[i]
-            out_ch = reversed_channels[i + 1]
-
-            self.up_convs.append(
-                nn.ConvTranspose3d(in_ch, out_ch, kernel_size=2, stride=2)
-            )
-            self.attention_gates.append(
-                AttentionGate3D(F_g=out_ch, F_l=out_ch, F_int=out_ch // 2 if out_ch > 1 else 1)
-            )
-            self.double_convs.append(
-                DoubleConv3D(out_ch * 2, out_ch)
-            )
-
-    def forward(self, features: list, bottleneck: torch.Tensor) -> torch.Tensor:
-        x = bottleneck
-        reversed_features = list(reversed(features))
-
-        for i, (up, ag, conv) in enumerate(zip(self.up_convs,
-                                                self.attention_gates,
-                                                self.double_convs)):
-            x = up(x)
-            skip = reversed_features[i]
-
-            if x.shape[2:] != skip.shape[2:]:
-                x = F.interpolate(x, size=skip.shape[2:], mode='trilinear', align_corners=True)
-
-            skip_attended = ag(x=skip, g=x)
-            x = torch.cat([skip_attended, x], dim=1)
-            x = conv(x)
-
-        return x
-
-
 class AttentionUNet3D(nn.Module):
-    """
-    3D Attention U-Net -- complete model.
-    Channels follow Figure 1: 16 -> 32 -> 64 -> 128 -> 256
-    """
-
-    def __init__(self, in_channels: int = IN_CHANNELS,
-                 out_channels: int = OUT_CHANNELS,
-                 encoder_channels: list = None):
+    def __init__(self, in_channels=IN_CHANNELS, out_channels=OUT_CHANNELS, channels=None,
+                 norm="batch", deepsup=False, attention=True, ag="simple"):
         super().__init__()
+        ch = list(channels or ENCODER_CHANNELS)
+        self.deepsup, self.attention = deepsup, attention
+        self.enc = nn.ModuleList()
+        prev = in_channels
+        for c in ch:
+            self.enc.append(DoubleConv3D(prev, c, norm)); prev = c
+        self.pool = nn.MaxPool3d(2)
+        rev = ch[::-1]                                              # 256, 128, 64, 32, 16
+        Gate = PaperAttentionGate3D if ag == "paper" else AttentionGate3D
+        self.up = nn.ModuleList(nn.ConvTranspose3d(rev[i], rev[i + 1], 2, stride=2) for i in range(len(rev) - 1))
+        self.gates = nn.ModuleList(Gate(rev[i + 1], rev[i + 1], rev[i + 1] // 2) for i in range(len(rev) - 1)) \
+            if attention else None
+        self.dec = nn.ModuleList(DoubleConv3D(2 * rev[i + 1], rev[i + 1], norm) for i in range(len(rev) - 1))
+        self.final_conv = nn.Conv3d(ch[0], out_channels, 1)
+        # aux heads on decoder levels 0..2 (1/8, 1/4, 1/2 resolution)
+        self.aux = nn.ModuleList(nn.Conv3d(rev[i + 1], out_channels, 1) for i in range(3)) if deepsup else None
 
-        if encoder_channels is None:
-            encoder_channels = ENCODER_CHANNELS
+    def forward(self, x):
+        size, skips = x.shape[2:], []
+        for i, block in enumerate(self.enc):
+            x = block(x)
+            if i < len(self.enc) - 1:
+                skips.append(x); x = self.pool(x)
+        dec_out = []
+        for i, (up, conv) in enumerate(zip(self.up, self.dec)):
+            x = up(x)
+            s = skips[-1 - i]
+            if x.shape[2:] != s.shape[2:]:
+                x = F.interpolate(x, size=s.shape[2:], mode="trilinear", align_corners=True)
+            if self.attention:
+                s = self.gates[i](x=s, g=x)
+            x = conv(torch.cat([s, x], dim=1))
+            dec_out.append(x)
+        main = self.final_conv(x)
+        if not (self.deepsup and self.training):
+            return main
+        aux = [F.interpolate(h(d), size=size, mode="trilinear", align_corners=False)
+               for h, d in zip(self.aux, dec_out[:3])]                 # [1/8, 1/4, 1/2]
+        return [main, aux[2], aux[1], aux[0]]                           # weights 1, 1/2, 1/4, 1/8
 
-        self.encoder = Encoder3D(in_channels, encoder_channels)
-        self.decoder = Decoder3D(encoder_channels)
-        self.final_conv = nn.Conv3d(encoder_channels[0], out_channels,
-                                     kernel_size=1, stride=1, padding=0)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        features, bottleneck = self.encoder(x)
-        decoded = self.decoder(features, bottleneck)
-        output = self.final_conv(decoded)
-        return output
-
-
-def build_model(in_channels: int = IN_CHANNELS,
-                out_channels: int = OUT_CHANNELS,
-                encoder_channels: list = None) -> AttentionUNet3D:
-    """Factory function to build the 3D Attention U-Net."""
-    return AttentionUNet3D(in_channels, out_channels, encoder_channels)
+def build_model(norm="batch", deepsup=False, attention=True, ag="simple", encoder_channels=None, **_) -> AttentionUNet3D:
+    """Extra keys (e.g. a full run config) are ignored, so build_model(**config) works."""
+    return AttentionUNet3D(channels=encoder_channels, norm=norm, deepsup=deepsup, attention=attention, ag=ag)
 
 
 def count_parameters(model: nn.Module) -> dict:
-    """Count total and trainable parameters."""
     total = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    return {
-        'total': total,
-        'trainable': trainable,
-        'total_MB': total * 4 / (1024 ** 2),
-    }
+    return {"total": total, "trainable": trainable, "total_MB": total * 4 / 1024 ** 2}

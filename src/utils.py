@@ -269,3 +269,21 @@ def memory_benchmark(device=None):
 
 if __name__ == "__main__":
     memory_benchmark()
+
+
+def plot_train_log(log_csv, out_png, title=""):
+    """Training loss (every logged step) and validation Dice/loss (every K steps) from train_log.csv."""
+    import pandas as pd
+    d = pd.read_csv(log_csv)
+    v = d.dropna(subset=["val_dice"])
+    fig, ax = plt.subplots(1, 2, figsize=(11, 4))
+    ax[0].plot(d.step, d.train_loss, lw=1, label="train loss (Dice+Focal)")
+    if len(v):
+        ax[0].plot(v.step, v.val_loss, "o-", ms=3, label="val loss (full volume)")
+        ax[1].plot(v.step, v.val_dice, "o-", ms=3, color="C2", label="val Dice (full volume)")
+        b = v.loc[v.val_dice.idxmax()]
+        ax[1].axvline(b.step, ls="--", c="gray", lw=1, label=f"best {b.val_dice:.3f} @ {int(b.step)}")
+    ax[0].set(xlabel="optimizer step", ylabel="loss"); ax[1].set(xlabel="optimizer step", ylabel="Dice", ylim=(0, 1))
+    for a_ in ax:
+        a_.grid(alpha=.3); a_.legend(fontsize=8)
+    fig.suptitle(title); fig.tight_layout(); fig.savefig(out_png, dpi=150); plt.close(fig)
