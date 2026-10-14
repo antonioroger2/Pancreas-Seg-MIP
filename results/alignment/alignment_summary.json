@@ -1,0 +1,31 @@
+{
+  "course": {
+    "rule": "T0_fx0_fy0_fz0",
+    "n_cases": 13,
+    "n_pass_after": 11,
+    "n_pass_identity": 11,
+    "failing_after": [
+      "PANCREAS_0004",
+      "PANCREAS_0021"
+    ],
+    "n_case_best_is_rule": 10,
+    "thresholds": {
+      "air_frac_max": 0.01,
+      "in_range_min": 0.5
+    }
+  },
+  "idc": {
+    "rule": "T0_fx0_fy0_fz0",
+    "n_cases": 8,
+    "n_pass_after": 7,
+    "n_pass_identity": 7,
+    "failing_after": [
+      "PANCREAS_0004"
+    ],
+    "n_case_best_is_rule": 6,
+    "thresholds": {
+      "air_frac_max": 0.01,
+      "in_range_min": 0.5
+    }
+  }
+}
