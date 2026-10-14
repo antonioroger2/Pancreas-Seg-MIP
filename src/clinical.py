@@ -73,13 +73,13 @@ def case_card(img, gt, pred, ent, title, path):
     zz = [int(np.percentile(zs, q)) for q in (25, 50, 75)]          # GT used only to choose display slices
     fig, ax = plt.subplots(3, 4, figsize=(13, 10))
     for r, z in enumerate(zz):
-        im = np.asarray(img[:, :, z], np.float32)
+        im = np.asarray(img[::-1, :, z], np.float32)          # rows flipped: anterior up
         for c, (lab, m, cm) in enumerate(((None, None, None), ("GT", gt, "autumn"), ("Prediction (TTA)", pred, "winter"))):
             ax[r, c].imshow(im, cmap="gray", vmin=0, vmax=1)
             if m is not None:
-                ax[r, c].imshow(np.ma.masked_where(~m[:, :, z], m[:, :, z]), cmap=cm, alpha=0.5, vmin=0, vmax=1)
+                ax[r, c].imshow(np.ma.masked_where(~m[::-1, :, z], m[::-1, :, z]), cmap=cm, alpha=0.5, vmin=0, vmax=1)
             ax[r, c].set_title(f"{'Input' if lab is None else lab}  (z={z})", fontsize=9)
-        h = ax[r, 3].imshow(np.asarray(ent[:, :, z], np.float32), cmap="magma", vmin=0, vmax=np.log(2))
+        h = ax[r, 3].imshow(np.asarray(ent[::-1, :, z], np.float32), cmap="magma", vmin=0, vmax=np.log(2))
         ax[r, 3].set_title("voxel entropy (TTA)", fontsize=9)
     for a_ in ax.ravel():
         a_.axis("off")

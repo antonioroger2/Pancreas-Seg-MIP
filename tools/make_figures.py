@@ -59,6 +59,7 @@ def main():
     P = {r: pd.read_csv(os.path.join(a.results, r, "test_per_patient.csv")).set_index("patient") for r in runs}
     C = {r: json.load(open(os.path.join(a.results, r, "config.json"))) for r in runs}
     final = "R3_final" if "R3_final" in runs else runs[-1]
+    n_test = S[final]["n_cases"]
     cap = []
 
     # (a) paper vs R0 vs final
@@ -72,8 +73,8 @@ def main():
                              assd=ms(s, "assd", nd=2) + (f" (inf: {s['n_inf_assd']})" if s["n_inf_assd"] else "")))
     ta = pd.DataFrame(rows).rename(columns=dict(dice="Dice (%)", jaccard="Jaccard (%)", hd95="HD95 (mm)", assd="ASSD (mm)"))
     ta.to_csv(os.path.join(out, "a_paper_vs_ours.csv"), index=False)
-    foot = ("† Paper SD/range (78.6-84.1) is most likely across its 5 folds (not stated); ours is the SD across the 16 "
-            "held-out test patients (seed 42, fold-0 model, single seed) - not like-for-like. n/r = not reported. "
+    foot = ("† Paper SD/range (78.6-84.1) is most likely across its 5 folds (not stated); ours is the SD across the "
+            f"held-out test patients (n = {n_test}; seed 42, fold-0 model, single seed) - not like-for-like. n/r = not reported. "
             f"Paper values: {PAPER['source']}.")
     open(os.path.join(out, "a_paper_vs_ours.md"), "w", encoding="utf-8").write(to_md(ta) + "\n\n" + foot + "\n")
     open(os.path.join(out, "a_paper_vs_ours.tex"), "w", encoding="utf-8").write(
@@ -94,9 +95,9 @@ def main():
             panels = [("Input CT", None), ("Ground truth", gt)] + [(LABEL[r], load_pred(os.path.join(a.results, r), pid))
                                                                     for r in show]
             for j, (t, m) in enumerate(panels):
-                ax[i, j].imshow(np.asarray(img[:, :, z], np.float32), cmap="gray", vmin=0, vmax=1)
+                ax[i, j].imshow(np.asarray(img[::-1, :, z], np.float32), cmap="gray", vmin=0, vmax=1)  # rows flipped: anterior up
                 if m is not None:
-                    ax[i, j].imshow(np.ma.masked_where(~m[:, :, z], m[:, :, z]), cmap="autumn", alpha=0.55)
+                    ax[i, j].imshow(np.ma.masked_where(~m[::-1, :, z], m[::-1, :, z]), cmap="autumn", alpha=0.55)
                 d = "" if j < 2 else f"\nDice {P[show[j - 2]].dice[pid]:.3f}"
                 ax[i, j].set_title(f"{tag}: {pid[-4:]} - {t}{d}" if j == 0 else t + d, fontsize=9)
                 ax[i, j].axis("off")
@@ -133,7 +134,7 @@ def main():
                        for r in runs])
     open(os.path.join(out, "d_ablation.md"), "w", encoding="utf-8").write(
         to_md(md) + "\n\nDice/Jaccard/precision/recall in %, HD95/ASSD in mm, v_ratio = V_pred/V_GT; "
-        "mean ± SD over 16 test patients (inf distances excluded and counted in d_ablation.csv).\n")
+        f"mean ± SD over {n_test} test patients (inf distances excluded and counted in d_ablation.csv).\n")
     fig, ax = plt.subplots(figsize=(1.6 * len(runs) + 2, 4.5))
     for i, r in enumerate(runs):
         ax.bar(i, S[r]["dice"]["mean"], 0.6, color=COLOR[r], zorder=2)
@@ -143,11 +144,11 @@ def main():
     ax.axhline(PAPER["dice"][0] / 100, ls="--", color=MUTED, lw=1)
     ax.text(len(runs) - 0.5, PAPER["dice"][0] / 100 + 0.01, "paper 0.808", ha="right", color=MUTED, fontsize=8)
     ax.set_xticks(range(len(runs)), [LABEL[r] for r in runs], fontsize=8)
-    ax.set(ylabel="test Dice (16 patients)", ylim=(0, 1), title="Cumulative ablation (mean ± SD, dots = patients)")
+    ax.set(ylabel=f"test Dice ({n_test} patients)", ylim=(0, 1), title="Cumulative ablation (mean ± SD, dots = patients)")
     ax.grid(axis="y", alpha=.6)
     fig.tight_layout(); fig.savefig(os.path.join(out, "d_ablation.png"), dpi=200); plt.close(fig)
     cap.append(("d_ablation.md/.png", "Cumulative ablation on identical settings (split, seed, N, optimizer, augmentation, "
-                "AMP, threshold, full-volume evaluation). Single fold, single seed, n = 16: differences < ~0.02 Dice are noise."))
+                f"AMP, threshold, full-volume evaluation). Single fold, single seed, n = {n_test}: differences < ~0.02 Dice are noise."))
 
     # (e) per-patient Dice, volume scatter, over-segmentation
     pts = list(P[runs[0]].index)
@@ -172,7 +173,7 @@ def main():
             ax.set(xlim=(0, 1.02), ylim=(0, 1.02)); ax.plot([0, 1], [0, 1], ":", color=MUTED, lw=1)
         ax.set(xlabel=xl, ylabel=yl); ax.grid(alpha=.6); ax.legend(fontsize=8, frameon=False)
         fig.tight_layout(); fig.savefig(os.path.join(out, name), dpi=200); plt.close(fig)
-    cap.append(("e_per_patient_dice.png", "Per-patient Dice on the 16 held-out test patients for every run."))
+    cap.append(("e_per_patient_dice.png", f"Per-patient Dice on the {n_test} held-out test patients for every run."))
     cap.append(("e_volume_scatter.png", "Predicted vs ground-truth pancreas volume (mL, 1 mm voxels); above the identity line "
                 "= over-segmentation. Healthy pancreas: measurement accuracy only."))
     cap.append(("e_overseg.png", "Precision vs recall per test patient: precision << recall indicates over-segmentation."))
@@ -191,13 +192,13 @@ def main():
                                p=t.pvalue if t else np.nan, b_better_in=int((diff > 0).sum() if m == "dice" else (diff < 0).sum())))
     pd.DataFrame(wr).to_csv(os.path.join(out, "f_wilcoxon.csv"), index=False)
     cap.append(("f_wilcoxon.csv", "Two-sided paired Wilcoxon signed-rank tests on per-patient test metrics (HD95: pairs with "
-                "an infinite value dropped, n reported). n = 16, single fold, single seed, no multiple-comparison correction."))
+                f"an infinite value dropped, n reported). n = {n_test}, single fold, single seed, no multiple-comparison correction."))
 
     # verdicts per addition (rule fixed in advance: |delta mean Dice| < 0.02 = "no clear difference"; guide sec. 16.4)
     W = pd.DataFrame(wr)
     lines = ["# Final results - auto-generated by tools/make_figures.py (do not edit numbers by hand)", "",
              "Verdict rule (fixed before results): delta mean test Dice >= +0.02 -> improved, <= -0.02 -> worse, otherwise "
-             "no clear difference; Wilcoxon p reported, n = 16, single fold, single seed.", "",
+             f"no clear difference; Wilcoxon p reported, n = {n_test} test patients, single fold, single seed.", "",
              "| Addition | Comparison | mean Dice a -> b | delta | Wilcoxon p (Dice) | patients improved | verdict |",
              "| --- | --- | --- | --- | --- | --- | --- |"]
     for name, x, y in (("M1 patches + sliding window", "R0_baseline", "R1_patch"), ("M2 GroupNorm", "R1_patch", "R2_gn"),
