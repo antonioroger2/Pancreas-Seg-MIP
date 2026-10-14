@@ -140,7 +140,7 @@ def main():
         raw = {pid(p): p for p in glob.glob(os.path.join(a.raw_labels, "*.nii.gz"))}
         jobs += [("idc", k) for k in sorted(dcm) if k in raw and (not ids or k in ids)]
 
-    rows, slices = [], {}
+    rows, slices, mismatch = [], {}, []
     for src, k in jobs:
         img, hu, lbl, lbl_img = (load_course(imgs[k], lbls[k]) if src == "course"
                                  else load_idc(dcm[k], raw[k]))
@@ -151,6 +151,10 @@ def main():
         if src == "idc" and k in imgs:                                # is the DICOM read identical to the course NIfTI?
             hdr["idc_equals_course"] = bool(np.array_equal(hu, sitk.GetArrayFromImage(sitk.ReadImage(imgs[k]))))
         case = []
+        if lbl.shape != hu.shape:
+            print(f"{src} {k:04d} SHAPE MISMATCH image {hu.shape} label {lbl.shape}: reported as failing", flush=True)
+            mismatch.append(f"{src}:PANCREAS_{k:04d}")
+            continue
         for v in VARIANTS:
             lv = np.ascontiguousarray(apply_variant(lbl, v))
             if lv.shape != hu.shape:
@@ -190,7 +194,7 @@ def main():
                                after_pass=bool(after.loc[p, "passed"]),
                                idc_equals_course=before.loc[p].get("idc_equals_course", "")))
         fails = sorted(after.index[~after.passed])
-        summary[src] = dict(rule=rule, n_cases=int(len(before)), n_pass_after=int(after.passed.sum()),
+        summary[src] = dict(rule=rule, n_cases=int(len(before)), shape_mismatch=[m for m in mismatch if m.startswith(src)], n_pass_after=int(after.passed.sum()),
                             n_pass_identity=int(before.passed.sum()), failing_after=fails,
                             n_case_best_is_rule=int((before.case_best == rule).sum()), thresholds=PASS)
         # overlays: first N cases + every failing case; montage of all cases (coronal, rule applied)

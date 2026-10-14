@@ -28,6 +28,18 @@ def read_dicom(d):
 
 
 def process(job):
+    try:
+        return _process(job)
+    except Exception as e:                       # a broken case is reported as FAIL, never silently skipped
+        pid, img_src, lbl_path, out, rule = job
+        meta = dict(patient=pid, source=img_src, label_source=lbl_path, rule=rule, error=repr(e),
+                    qc=dict(error=False), qc_pass=False)
+        json.dump(meta, open(os.path.join(out, "meta", f"{pid}.json"), "w"), indent=1)
+        print(pid, "FAIL", repr(e), flush=True)
+        return meta
+
+
+def _process(job):
     pid, img_src, lbl_path, out, rule = job
     img = read_dicom(img_src) if os.path.isdir(img_src) else sitk.ReadImage(img_src)
     lbl = sitk.ReadImage(lbl_path)

@@ -38,3 +38,13 @@ Every decision, fallback and number below comes from a saved file produced by co
 - Trainer: step-based, AMP, `best.pth` by val Dice, `last.pth` every 300 steps + automatic resume (test 11), `train_log.csv` with the CURRENT lr per row (fixes the Review-1 single-lr bug), seconds, peak VRAM; npy mmap via `tools/unpack_npz.py`; sample i is a pure function of (seed, i) so resume is exact.
 - Local smoke (RTX 5060 8 GB, toy split of local non-test cases): R0 peak VRAM 6.55 GB (224x224x128, batch 1, AMP); R3 6.32 GB (2x128x128x96). Full-volume validation ~15 s/case locally.
 - Removed dead modules `src/cross_validation.py` (imported the old epoch trainer) and `src/data/qc_preprocessing.py` (QC now in prepare_data). Tests 1-12 adapted to the new APIs (2, 8, 9, 11 rewritten, same intent): **18/18 pass** (`python -m src.test_all`).
+
+## T5 - Benchmark (tools/benchmark_steps.py) - N and K are NOT chosen yet
+- Measures s/step (20 iters after 5 warm-up, cudnn.benchmark as in training, real data loader), peak VRAM, one validation case (overlap 0.25) and one test case (overlap 0.5) for R0-R4; picks ONE N (multiple of 100) for all runs = largest N whose longest-first 2-GPU schedule of R0-R3 fits `--wall_hours` (default 3 h), K so validation is ~15 % of the slowest run; warns if N < 3000 and prints the hours needed for N = 3000. Writes results/benchmark.json.
+- Local dry run (RTX 5060 laptop, toy split, NOT the decision): R0 1.83 s/step (6.5 GB), R1 0.83, R2 0.96, R3 1.01 (4.5 GB), R4 0.79; GPU-only R0 1.60 s/step; data loading 0.04 s/sample -> R0 (one 224x224x128 crop per step) is the bottleneck for a shared N.
+- OOM ladder available as `--patch_size` in the launcher (applied to every patch run identically).
+
+## T7 - Kaggle kit (scripts/kaggle_launch.py, scripts/run_ablation.sh, scripts/package.py, notebooks/kaggle_ablation.ipynb)
+- FALLBACK (bandwidth): data is fetched and preprocessed ON KAGGLE from IDC S3 (`tools/fetch_idc.py`) + bundled TCIA labels (`data/raw_labels`, 80/80 identical to the course labels: array, spacing, direction). The notebook gates on T1 for all 80 (identity rule, air <= 0.01, no shape mismatch), T2 QC 80/80 and splits == committed file before training.
+- One process per GPU (CUDA_VISIBLE_DEVICES), runs chained train -> evaluate; schedule and N, K from benchmark.json; resumable; T6 sanity = short R0 (GPU0) + R3 (GPU1), validation only.
+- `python scripts/package.py` -> dist/pancreas-code.zip (1.1 MB: code, splits, T1 rule, TCIA labels, IDC metadata).

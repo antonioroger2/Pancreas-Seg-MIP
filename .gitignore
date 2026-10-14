@@ -33,3 +33,4 @@ Thumbs.db
 # Local data / preprocessed volumes
 /prep/
 data_fetch*.log
+dist/
