@@ -592,6 +592,29 @@ def test_evaluation_metrics():
 
 
 # ==============================================================================
+# TEST 13: Blind crop -> paste-back round trip (T2)
+# ==============================================================================
+def test_crop_paste_roundtrip():
+    """Crop then paste back restores every voxel inside the crop and zeros outside; works with padding."""
+    from src.data.preprocessing import blind_center_crop, crop_at, paste_back, center_crop_or_pad
+    rng = np.random.default_rng(0)
+    for shape in [(300, 290, 200), (440, 440, 240), (200, 230, 100), (224, 224, 128)]:
+        vol = rng.random(shape).astype(np.float32) + 1.0          # strictly > 0 so zero-fill is detectable
+        off = blind_center_crop(shape, (224, 224, 128))
+        crop = crop_at(vol, off, (224, 224, 128))
+        assert crop.shape == (224, 224, 128)
+        back = paste_back(crop, off, shape)
+        inside = tuple(slice(max(o, 0), min(o + t, s)) for o, t, s in zip(off, (224, 224, 128), shape))
+        assert np.array_equal(back[inside], vol[inside]), f"round trip mismatch for {shape}"
+        mask = np.zeros(shape, bool); mask[inside] = True
+        assert (back[~mask] == 0).all(), "outside the crop must be background"
+        assert np.array_equal(center_crop_or_pad(vol, (224, 224, 128)), crop)
+        print(f"  [OK] {shape}: offsets {off}, {mask.sum()} voxels round-trip exactly")
+    assert blind_center_crop((440, 440, 240), (224, 224, 128)) == (108, 108, 56)
+    return True
+
+
+# ==============================================================================
 # MAIN
 # ==============================================================================
 def main():
@@ -612,6 +635,7 @@ def main():
         ("10. Checkpoint Save/Load", test_checkpoint),
         ("11. Resume", test_resume),
         ("12. Evaluation Metrics", test_evaluation_metrics),
+        ("13. Crop/Paste Round Trip", test_crop_paste_roundtrip),
     ]
 
     for name, fn in tests:

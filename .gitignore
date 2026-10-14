@@ -6,7 +6,7 @@ __pycache__/
 .DS_Store
 
 # Datasets and checkpoints (too large for Git)
-data/
+/data/
 data_preprocessed/
 preprocessed/
 checkpoints/
@@ -31,5 +31,5 @@ predictions/
 Thumbs.db
 
 # Local data / preprocessed volumes
-prep/
+/prep/
 data_fetch*.log
